@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "random": "c",
+        "array": "c",
+        "memory": "c",
+        "functional": "c",
+        "tuple": "c",
+        "utility": "c"
+    }
+}

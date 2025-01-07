@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
+#include <string.h>
 
 //ctrl key definitions
 //#define CTRL_KEY(k) ((k) & 0x1f)
@@ -39,6 +40,7 @@ void die(const char *s){
 
 //terminal setting handling
 void disable_raw_mode(void){
+    write(STDOUT_FILENO, "\x1b[2j", 4);
     if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.original) < 1){
         die("tcsetattr");
     }
@@ -71,45 +73,70 @@ char editor_read_key(void){
 }
 
 int getCursorPosition(int *rows, int *cols){
+    char buf[32];
+    unsigned int i = 0;
+
     if(write(STDOUT_FILENO, "x1b[6n", 4) != 4) return -1;
-    printf("\r\n");
-    char c;
-    while(read(STDIN_FILENO, &c, 1 == 1)){
-        if(iscntrl(c)){
-            printf("%d\r\n", c);
-        } else{
-            printf("%d('%c')\r\n", c, c);
-        }
+    
+    while (i < sizeof(buf) -1){
+        if(read(STDIN_FILENO, &buf, 1) != 1) break;
+        if(buf[i] == 'R') break;
+        i++;
     }
-    editor_read_key();
-    return -1;
+    buf[i] = '\0';
+    if (buf[0] != '\x1b' || buf[1] != '[') return -1;
+    if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
+    return 0;
 }
 
 
 int getWindowSize(int *rows, int *cols){
     struct winsize ws;
     if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
-        if(write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
-        return getCursorPosition(rows, cols);
+        if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
+        getCursorPosition(rows, cols);
     } else{
         *cols = ws.ws_col;
         *rows = ws.ws_row;
         return 0;
     }
+    return -1;
 }
 
+/*** append buffer code, allow for entire screen to be written at once **/
+struct abuf {
+	char *b;
+	int len;
+};
+
+#define ABUF_INIT {Null, 0}
+
+void abAppend(struct  abuf *ab, const char *s, int len){
+	char *new = realloc(ab->b, ab->len + len);
+	
+	if (new == NULL) return;
+
+	memcpy(&new[ab->len], s, len);
+	ab->b = new;
+	ab->len += len;
+}
+
+void abfree(struct abuf *ab){
+	free(ab->b);
+	return;
+}
 
 //output based on VT100 documentation
 void editor_draw_rows(void){
     int y;
-    for (y=0; y <24; y++) {
+    for (y=0; y < E.screenrows; y++) {
         write(STDOUT_FILENO, "~\r\n", 3);
     }
 }
 
 void editor_refresh_screen(void){
     write(STDOUT_FILENO, "\x1b[2j", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
+    //write(STDOUT_FILENO, "\x1b[H", 3);
 
     editor_draw_rows();
     write(STDOUT_FILENO, "\x1b[H", 3);
@@ -122,8 +149,8 @@ void editor_process_keypress(void){
     switch (c)
     {
     case (CTRL_KEY('q')):
-        write(STDOUT_FILENO, "\x1b[2j", 4);
         write(STDOUT_FILENO, "\x1b[H", 3);
+        write(STDOUT_FILENO, "\x1b[2j", 4);
         exit(0);
         break;
     }
@@ -138,7 +165,7 @@ void initEditor(void){
 int main(){
     set_raw_mode();
     initEditor();
-
+    
     while(1){
         editor_refresh_screen();
         editor_process_keypress();
