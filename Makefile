@@ -1,7 +1,7 @@
 flags := -Wall -Wextra -pedantic -std=c99
 
-milo: milo.c
-	$(CC) milo.c -o milo $(flags)
+kilo: kilo.c
+	$(CC) kilo.c -o kilo $(flags)
 
 clean:
-	rm -f milo
+	rm -f kilo
