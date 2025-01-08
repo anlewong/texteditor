@@ -22,10 +22,19 @@
 
 
 /*** Definitions ***/
-//Strips bits 5, 6
-
-#define CTRL_KEY(k) ((k) & 0x1f)
 #define KILO_VERSION "0.0.1"
+
+//Strips bits 5, 6
+#define CTRL_KEY(k) ((k) & 0x1f)
+
+enum editorKey{
+	ARROW_UP =  'w',
+	ARROW_LEFT = 'a', 
+	ARROW_DOWN = 's',
+	ARROW_RIGHT = 'd'
+};
+
+
 
 
 /*** Data  ***/
@@ -112,6 +121,28 @@ char editorReadKey(){
 	while ((nread = read(STDIN_FILENO, &c, 1)) != 1){
 		if (nread == -1 && errno != EAGAIN) die("read");
 	}
+	
+	//check if escape seq
+	if(c == '\x1b'){
+		//hold potential special commands
+		char seq[3];
+		
+		//make sure it reads some arg after escape char
+		if(read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+		if(read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+		//valid seq
+		if(seq[0] == '['){
+			switch (seq[1]){
+				case 'A': return ARROW_UP;
+				case 'B': return ARROW_LEFT;
+				case 'C': return ARROW_DOWN;
+				case 'D': return ARROW_RIGHT;
+			}
+		}
+
+		return '\x1b';
+	} 
 	return c;
 }
 
@@ -262,6 +293,30 @@ void editorRefreshScreen() {
 
 
 /*** input ***/
+void editorMoveCursor(char key){
+	switch (key) {
+		case ARROW_UP:
+			if(E.cy > 0){
+        			E.cy--;
+			}
+        		break;
+        	case ARROW_LEFT:
+			if(E.cx > 0){
+				E.cx--;
+			}
+        		break;
+        	case ARROW_DOWN:
+			if(E.cy < E.screenrows){
+				E.cy++;
+			}
+        		break;
+        	case ARROW_RIGHT:
+			if(E.cx < E.screencols){
+				E.cx++;
+			}
+        		break;
+	}
+}
 
 void editorProcessKeypress(){
 	//get c from editor
@@ -273,19 +328,12 @@ void editorProcessKeypress(){
 			clearScreen();
 			exit(0);
 			break;
-		case 'w':
-			E.cy--;
+		case ARROW_UP:
+		case ARROW_DOWN:
+		case ARROW_LEFT:
+		case ARROW_RIGHT:
+			editorMoveCursor(c);	
 			break;
-		case 'a':
-			E.cx--;
-			break;
-		case 's':
-			E.cy++;
-			break;
-		case 'd':
-			E.cx++;
-			break;
-			
 	}
 }
 
