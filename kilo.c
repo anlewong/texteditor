@@ -28,10 +28,10 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 enum editorKey{
-	ARROW_UP =  'w',
-	ARROW_LEFT = 'a', 
-	ARROW_DOWN = 's',
-	ARROW_RIGHT = 'd'
+	ARROW_UP =  1000,
+	ARROW_LEFT = 1001, 
+	ARROW_DOWN = 1002,
+	ARROW_RIGHT = 1003
 };
 
 
@@ -114,7 +114,7 @@ void enableRawMode(){
 	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
-char editorReadKey(){
+int editorReadKey(){
 	int nread;
 	char c;
 	//Spin lock till c is valid character
@@ -293,7 +293,7 @@ void editorRefreshScreen() {
 
 
 /*** input ***/
-void editorMoveCursor(char key){
+void editorMoveCursor(int key){
 	switch (key) {
 		case ARROW_UP:
 			if(E.cy > 0){
@@ -320,7 +320,7 @@ void editorMoveCursor(char key){
 
 void editorProcessKeypress(){
 	//get c from editor
-	char c = editorReadKey();
+	int c = editorReadKey();
 	
 	//if c is a hotkey, apply case behavior
 	switch (c) {
