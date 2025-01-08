@@ -151,7 +151,7 @@ int getWindowSize(int *rows, int *cols) {
 	//TIOCGWINSZ - request window size of file
 	
 	//1 || means always true, this code, moves the cursor to the bottom right part of the screen, and errors on a failure. It then reads the key inputed.
-	if (1 || ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
 		//C cursor foward, 1 arg
 		//B cursor down, 1 arg
 		if(write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
@@ -163,12 +163,21 @@ int getWindowSize(int *rows, int *cols) {
 	}
 }
 
+/*** append buffer ***/
+struct abuf{
+	char *b;
+	int len;
+};
+
+#define ABUF_INIT {NULL, 0}
+
 void editorDrawRows() {
 	//print tildas for y rows
 	int y;
-	for (y=0; y<E.screenrows; y++){
+	for (y=0; y<E.screenrows-1; y++){
 		write(STDOUT_FILENO, "~\r\n",3);
 	}
+	write(STDOUT_FILENO, "~", 1);
 }
 
 void editorRefreshScreen() {
