@@ -29,9 +29,11 @@
 
 enum editorKey{
 	ARROW_UP =  1000,
-	ARROW_LEFT = 1001, 
-	ARROW_DOWN = 1002,
-	ARROW_RIGHT = 1003
+	ARROW_LEFT, 
+	ARROW_DOWN, 
+	ARROW_RIGHT,
+	PAGE_UP,
+	PAGE_DOWN
 };
 
 
@@ -133,11 +135,23 @@ int editorReadKey(){
 
 		//valid seq
 		if(seq[0] == '['){
-			switch (seq[1]){
-				case 'A': return ARROW_UP;
-				case 'B': return ARROW_LEFT;
-				case 'C': return ARROW_DOWN;
-				case 'D': return ARROW_RIGHT;
+			if(seq[1] >= '0' && seq[1] <= '9') {
+				if(read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+				if(seq[2] == '~'){
+					//Page swithc, denoted esc[5~ or esc[6~. 3 char seq
+					switch(seq[1]){
+						case '5': return PAGE_UP;
+						case '6': return PAGE_DOWN;
+					}	
+				}
+			} else {
+				//arrow key swithc, denoted by esc[A 2 char seq
+				switch (seq[1]){
+					case 'A': return ARROW_UP;
+					case 'B': return ARROW_DOWN;
+					case 'C': return ARROW_RIGHT;
+					case 'D': return ARROW_LEFT;
+				}
 			}
 		}
 
