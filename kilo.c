@@ -11,6 +11,9 @@
 #include <ctype.h>
 #include <stdio.h>
 
+//writing with buff
+#include <string.h>
+
 //Error Handling Packages
 #include <errno.h>
 
@@ -22,7 +25,7 @@
 //Strips bits 5, 6
 
 #define CTRL_KEY(k) ((k) & 0x1f)
-
+#define KILO_VERSION "0.0.1"
 
 
 /*** Data  ***/
@@ -171,29 +174,86 @@ struct abuf{
 
 #define ABUF_INIT {NULL, 0}
 
-void editorDrawRows() {
+void abAppend(struct abuf *ab, char *s, int len){
+	//allocate mem to hold old and new string
+	char *new = realloc(ab->b, ab->len + len);
+	
+	//err handle if realloc fail
+	if(new == NULL) return;
+
+	//copy the new string to the end of the old one
+	memcpy(&new[ab->len], s, len);
+
+	//set abuf to bethe new string pointer an dlength
+	ab->b = new;
+	ab->len += len;
+}
+
+void abFree(struct abuf *ab){
+	free(ab->b);
+}
+
+void editorDrawRows(struct abuf *ab) {
 	//print tildas for y rows
 	int y;
-	for (y=0; y<E.screenrows-1; y++){
-		write(STDOUT_FILENO, "~\r\n",3);
+	for (y=0; y<E.screenrows; y++){
+		if (y == E.screenrows/3){
+			//welcome string, name and version
+			char welcome[80];
+
+			//welcomelen equals whatever snprintf was able to write into welcome
+			int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo Editor -- version %s", KILO_VERSION);
+			
+			//truncates the welcome message to screencols
+			if (welcomelen > E.screencols) welcomelen = E.screencols;
+			
+			//calc middle of screen
+			int padding = (E.screencols - welcomelen)/2;
+			if (padding){
+				abAppend(ab, "~", 1);
+				padding--;
+			}
+			while(padding--) abAppend(ab, " ", 1);	
+			abAppend(ab, welcome, welcomelen);
+		} else {
+			abAppend(ab, "~", 1);		
+		}	
+		//K erases everything after where cursor is located
+		abAppend(ab, "\x1b[K" ,3);
+	
+		if(y < E.screenrows -1){
+			abAppend(ab, "\r\n", 3);
+		}		
 	}
-	write(STDOUT_FILENO, "~", 1);
 }
 
 void editorRefreshScreen() {
+	//init buf
+	struct abuf ab = ABUF_INIT;
+	
+	//?25l hides cursor/doesn't display
+	abAppend(&ab, "\x1b[?25l", 6);
+
+	//?25h unhides cursor
+	abAppend(&ab, "\x1b[?25h", 6);
+
 	// \x1b - escape character
 	// \x1b[ - escape sequence, terminal formatting command
 	// J - Erase In Display, 2 - erase entire screen
-	write(STDOUT_FILENO, "\x1B[2J", 4);
+	//abAppend(&ab, "\x1B[2J", 4);
 	
 	//H - cursor position
 	//H Args, height;widthH
-	write(STDOUT_FILENO, "\x1b[H", 3);
+	abAppend(&ab, "\x1b[H", 3);
 
-	editorDrawRows();
+	editorDrawRows(&ab);
 
 	//Reposition Cursor Top Left	
-	write(STDOUT_FILENO, "\x1b[H", 3);
+	abAppend(&ab, "\x1b[H", 3);
+	
+	//write buf out
+	write(STDOUT_FILENO, ab.b, ab.len);
+	abFree(&ab);
 }
 
 
