@@ -478,7 +478,6 @@ void editorRefreshScreen() {
 	abFree(&ab);
 }
 
-
 /*** input ***/
 void editorMoveCursor(int key){
 	erow *row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
@@ -532,18 +531,29 @@ void editorProcessKeypress(){
 		
 		case HOME_KEY:
 			E.cx = 0;
+			E.farx = E.cx;
 			break;
 		case END_KEY:
-			E.cx = E.screencols - 1;
-			break;
-
-		case PAGE_UP:
-			E.cy = 0;
-			break;
-		case PAGE_DOWN:
-			E.cy = E.screenrows - 1;
+			E.cx = (E.cy < E.numrows) ? E.row[E.cy].size : E.cx;
+			E.farx = E.cx;
 			break;
 		
+		case PAGE_UP:
+		case PAGE_DOWN:
+			{
+				if (c == PAGE_UP){
+					E.cy = E.rowoff;
+				} else if (c == PAGE_DOWN){
+					E.cy = E.rowoff + E.screenrows - 1;
+				}
+
+				int times = E.screenrows;
+				while (times--){
+					editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+				}
+			}
+			break;	
+
 		case ARROW_UP:
 		case ARROW_DOWN:
 		case ARROW_LEFT:
@@ -552,7 +562,6 @@ void editorProcessKeypress(){
 			break;
 	}
 }
-
 
 /*** Initialization ***/
 void initEditor(){
@@ -568,7 +577,6 @@ void initEditor(){
 
 	if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 }
-
 
 int main(int argc, char *argv[]){
 	//enable editor mode
