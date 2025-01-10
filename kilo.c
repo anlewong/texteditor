@@ -7,7 +7,6 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-
 //feature test macros tried to get getline working always throwing a fit
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
@@ -61,6 +60,9 @@ typedef struct erow {
 struct editorConfig {
 	//cursor tracking
 	int cx, cy;
+
+	//rendered cursor tracking
+	int rx;
 	int farx;
 
 	//screen dimensions
@@ -279,7 +281,6 @@ void editorUpdateRow(erow *row){
 	
 }
 
-
 void editorAppendRow(char *s, size_t len){
 	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow)));
 
@@ -297,8 +298,6 @@ void editorAppendRow(char *s, size_t len){
 
 	E.numrows++;
 }
-
-
 
 /*
 	Description:
@@ -356,19 +355,42 @@ void abFree(struct abuf *ab){
 	free(ab->b);
 }
 
+int editorRowCxToRx(erow *r, int cx){
+	int rx = 0;
+	
+	if (cx == 0) {
+		rx += (r->chars[0] == '\t') ? ((KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP)) + 1 : 0;
+		return rx;
+	} 
+
+	for (int j = 0; j < cx; j++){
+		rx += (r->chars[j] == '\t') ? ((KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP)) + 1 : 1;
+	}
+
+
+	return rx;
+}
+
 void editorScroll(){
+	//rx settings
+	E.rx = 0;
+	if (E.cy < E.numrows) {
+		E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+	}
+
+	//vert scroll
 	if (E.cy < E.rowoff) {
 		E.rowoff = E.cy;
 	}
-	if(E.cy >= E.rowoff + E.screenrows){
+	if (E.cy >= E.rowoff + E.screenrows){
 		E.rowoff = E.cy - E.screenrows + 1;
 	}
-
+	//horizontal scroll
 	if (E.cx < E.coloff){
-		E.coloff = E.cx;
+		E.coloff = E.rx;
 	}
-	if(E.cx >= E.coloff + E.screencols){
-		E.coloff = E.cx - E.screencols + 1;
+	if (E.cx >= E.coloff + E.screencols){
+		E.coloff = E.rx - E.screencols + 1;
 	}
 }
 
@@ -445,7 +467,7 @@ void editorRefreshScreen() {
 
 	//Reposition Cursor cx, cy
 	char buf[32];
-	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.cx - E.coloff) +1);
+	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.rx - E.coloff) +1);
 	abAppend(&ab, buf, strlen(buf));
 	
 	//?25h unhides cursor
@@ -491,7 +513,6 @@ void editorMoveCursor(int key){
 			E.farx = E.cx;
 			break;
 	}
-
 	row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
 	int rowlen = row ? row->size : 0;	
 	E.cx = (E.farx < rowlen) ? E.farx : rowlen;
@@ -538,8 +559,9 @@ void initEditor(){
 	//init editor to def state
 	E.cx = 0;
 	E.cy = 0;
-	E.numrows = 0;
+	E.rx = 0;
 
+	E.numrows = 0;
 	E.rowoff = 0;
 	E.coloff = 0;
 	E.row = NULL;
