@@ -146,14 +146,7 @@ void editor_refresh_screen(void){
 //input handling
 void editor_process_keypress(void){
     char c = editor_read_key();
-    switch (c)
-    {
-    case (CTRL_KEY('q')):
-        write(STDOUT_FILENO, "\x1b[H", 3);
-        write(STDOUT_FILENO, "\x1b[2j", 4);
-        exit(0);
-        break;
-    }
+    
 
 }
 
@@ -164,11 +157,20 @@ void initEditor(void){
 
 int main(){
     set_raw_mode();
-    initEditor();
+    //initEditor();
     
     while(1){
-        editor_refresh_screen();
-        editor_process_keypress();
-    }
+        //editor_refresh_screen();
+        //editor_process_keypress();
+	
+	char c = '\0';
+	read(STDIN_FILENO, &c, 1);
+	if(iscntrl(c)){
+		printf("%d\r\n", c);
+	} else {
+		printf("%d ('%c')\r\n", c, c);	
+   	}
+	if (c == 'q') break;
+  }
     return 0;
 }

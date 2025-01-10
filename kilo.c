@@ -33,18 +33,30 @@ enum editorKey{
 	ARROW_DOWN, 
 	ARROW_RIGHT,
 	PAGE_UP,
-	PAGE_DOWN
+	PAGE_DOWN,
+	HOME_KEY,
+	END_KEY,
+	DELETE_KEY
 };
 
 
 
 
 /*** Data  ***/
-//structs
+
+typedef struct erow {
+	int size;
+	char *chars;
+} erow;
+
 struct editorConfig {
 	int cx, cy;
 	int screenrows;
 	int screencols;
+	
+	int numrows;
+	erow row;
+
 	struct termios orig_termios;
 };
 
@@ -130,28 +142,44 @@ int editorReadKey(){
 		char seq[3];
 		
 		//make sure it reads some arg after escape char
-		if(read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-		if(read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+		if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+		if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
 		//valid seq
-		if(seq[0] == '['){
-			if(seq[1] >= '0' && seq[1] <= '9') {
-				if(read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-				if(seq[2] == '~'){
+		if (seq[0] == '['){
+			if (seq[1] >= '0' && seq[1] <= '9') {
+				if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+				if (seq[2] == '~'){
 					//Page swithc, denoted esc[5~ or esc[6~. 3 char seq
-					switch(seq[1]){
+					switch (seq[1]){
+						case '1': return HOME_KEY;
+						case '3': return DELETE_KEY;
+						case '4': return END_KEY;
 						case '5': return PAGE_UP;
 						case '6': return PAGE_DOWN;
+						case '7': return HOME_KEY;
+						case '8': return END_KEY;
 					}	
 				}
-			} else {
+			}  else {
 				//arrow key swithc, denoted by esc[A 2 char seq
 				switch (seq[1]){
 					case 'A': return ARROW_UP;
 					case 'B': return ARROW_DOWN;
 					case 'C': return ARROW_RIGHT;
 					case 'D': return ARROW_LEFT;
+					case 'H': return HOME_KEY;
+					case 'F': return END_KEY;
 				}
+			}
+		} 
+		//needed because sometimes doesn't have {
+		//Home esc[1~, 7~ or [h, or escOH, 
+		//END esc[4~, or 8~, or [F or OF
+		else if (seq[0] == 'O'){
+			switch (seq[1]){
+				case 'H': return HOME_KEY;
+				case 'F': return END_KEY;
 			}
 		}
 
@@ -212,6 +240,35 @@ int getWindowSize(int *rows, int *cols) {
 	}
 }
 
+/***file i/o ***/
+
+//function to modify editor rows
+void editorOpen(){
+	//line we want to see in our editor
+	char *line = "Hello, world!";
+
+	//length of our line including space for a terminating char
+	ssize_t linelen = 13;
+
+	//setting one of our row objects sizes = to linelen to know how much to print out
+	E.row.size = linelen;
+
+	//allocating memory for the string, will realloc when editing to match what is written
+	E.row.chars = malloc(linelen + 1);
+
+	//copying our string into the char* pointer in the row object,
+	memcpy(E.row.chars, line, linelen);
+
+	//ensure our string is null terminated
+	E.row.chars[linelen] = '\0';
+	
+	//updating our row count
+	E.numrows = 1;
+
+}
+
+
+
 /*** append buffer ***/
 struct abuf{
 	char *b;
@@ -242,34 +299,50 @@ void abFree(struct abuf *ab){
 void editorDrawRows(struct abuf *ab) {
 	//print tildas for y rows
 	int y;
-	for (y=0; y<E.screenrows; y++){
-		if (y == E.screenrows/3){
-			//welcome string, name and version
-			char welcome[80];
 
-			//welcomelen equals whatever snprintf was able to write into welcome
-			int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo Editor -- version %s", KILO_VERSION);
+	//loop through all visible rows to print
+	for (y=0; y<E.screenrows; y++){
+
+		//check if current row has an existing erow to print
+		if(y >= E.numrows){
+
+			//Print Centered Welcome Message at top third of editor in center
+			if (y == E.screenrows/3){
+				//welcome string, name and version
+				char welcome[80];
+
+				//welcomelen equals whatever snprintf was able to write into welcome
+				int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo Editor -- version %s", KILO_VERSION);
 			
-			//truncates the welcome message to screencols
-			if (welcomelen > E.screencols) welcomelen = E.screencols;
+				//truncates the welcome message to screencols
+				if (welcomelen > E.screencols) welcomelen = E.screencols;
 			
-			//calc middle of screen
-			int padding = (E.screencols - welcomelen)/2;
-			if (padding){
-				abAppend(ab, "~", 1);
-				padding--;
-			}
-			while(padding--) abAppend(ab, " ", 1);	
-			abAppend(ab, welcome, welcomelen);
+				//calc middle of screen
+				int padding = (E.screencols - welcomelen)/2;
+				if (padding){
+					abAppend(ab, "~", 1);
+					padding--;
+				}
+				while(padding--) abAppend(ab, " ", 1);	
+				abAppend(ab, welcome, welcomelen);
+			} else {
+				abAppend(ab, "~", 1);		
+			}	
 		} else {
-			abAppend(ab, "~", 1);		
-		}	
-		//K erases everything after where cursor is located
+
+			//only append erow content that can be read given editor window size
+			int len = E.row.size;
+			if (len > E.screencols) len = E.screencols;
+			abAppend(ab, E.row.chars, len);
+		}
+		//K erases everything to the right of the cursor, cursor moves with printing text
 		abAppend(ab, "\x1b[K" ,3);
-	
+
+		//iterate to next column via return + carriage.
 		if(y < E.screenrows -1){
 			abAppend(ab, "\r\n", 3);
-		}		
+		}	
+				
 	}
 }
 
@@ -342,6 +415,21 @@ void editorProcessKeypress(){
 			clearScreen();
 			exit(0);
 			break;
+		
+		case HOME_KEY:
+			E.cx = 0;
+			break;
+		case END_KEY:
+			E.cx = E.screencols - 1;
+			break;
+
+		case PAGE_UP:
+			E.cy = 0;
+			break;
+		case PAGE_DOWN:
+			E.cy = E.screenrows - 1;
+			break;
+		
 		case ARROW_UP:
 		case ARROW_DOWN:
 		case ARROW_LEFT:
@@ -356,6 +444,7 @@ void editorProcessKeypress(){
 void initEditor(){
 	E.cx = 0;
 	E.cy = 0;
+	E.numrows = 0;
 	if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 }
 
@@ -363,7 +452,9 @@ int main(){
 	//enable editor mode
 	enableRawMode();
 	initEditor();
-	
+	editorOpen();	
+
+
 	//go till break
 	while(1) {
 		editorRefreshScreen();
@@ -371,3 +462,4 @@ int main(){
 	}
 	return 0;
 }
+
