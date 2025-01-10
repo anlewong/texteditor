@@ -7,9 +7,16 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+
+//feature test macros tried to get getline working always throwing a fit
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
 //Writing/IO Packages
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 //writing with buff
 #include <string.h>
@@ -19,6 +26,7 @@
 
 //Input Output control Package
 #include <sys/ioctl.h>
+#include <sys/types.h>
 
 
 /*** Definitions ***/
@@ -39,9 +47,6 @@ enum editorKey{
 	DELETE_KEY
 };
 
-
-
-
 /*** Data  ***/
 
 typedef struct erow {
@@ -55,7 +60,7 @@ struct editorConfig {
 	int screencols;
 	
 	int numrows;
-	erow row;
+	erow *row;
 
 	struct termios orig_termios;
 };
@@ -80,12 +85,12 @@ void die(const char*s){
 	exit(1);
 }
 
-
 //setting up terminal for manipulatoin
 void disableRawMode(){
 	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1) die("tcsetattr");
 }
 
+//Change Terminal Attributes to enable "RAW MODE"
 void enableRawMode(){
        	
 	//get the initial terminal state and flags.
@@ -95,12 +100,7 @@ void enableRawMode(){
 	atexit(disableRawMode); 
 	
 	struct termios raw = E.orig_termios; //set manipulated terminal to original
-	//c_iflag deals with terminal input characteristics	
-	//IXON flag for data flow control, related to ctrl-s, ctrl-q
-	//ICRNL turns carraige -> newline translation
-	//BRKINT controls if break cond functions like ctrl-c
-	//INPCK parity checking for outdated terminals
-	//ISTRIP removes 8th bit of each input byte
+
 	raw.c_iflag &= ~(ICRNL | IXON | BRKINT | INPCK | ISTRIP);
 	
 	//c_oflag deals with output behavior
@@ -128,6 +128,7 @@ void enableRawMode(){
 	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
+//Special and Reg Character Handling
 int editorReadKey(){
 	int nread;
 	char c;
@@ -150,7 +151,7 @@ int editorReadKey(){
 			if (seq[1] >= '0' && seq[1] <= '9') {
 				if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
 				if (seq[2] == '~'){
-					//Page swithc, denoted esc[5~ or esc[6~. 3 char seq
+					//Page up/down, denoted esc[5~ or esc[6~. 3 char seq
 					switch (seq[1]){
 						case '1': return HOME_KEY;
 						case '3': return DELETE_KEY;
@@ -162,7 +163,7 @@ int editorReadKey(){
 					}	
 				}
 			}  else {
-				//arrow key swithc, denoted by esc[A 2 char seq
+				//arrow key switch, denoted by esc[A 2 char seq, NSEW
 				switch (seq[1]){
 					case 'A': return ARROW_UP;
 					case 'B': return ARROW_DOWN;
@@ -188,8 +189,12 @@ int editorReadKey(){
 	return c;
 }
 
+//Locate Cursos for drawing
 int getCursorPosition(int *rows, int *cols) {
+	//holds returned position pair
 	char buf[32];
+
+	//length buf needs to hold?
 	unsigned int i = 0;
 	
 	//returns cursor posiiton to std out
@@ -241,33 +246,49 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /***file i/o ***/
+void editorAppendRow(char *s, size_t len){
+	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow)));
 
-//function to modify editor rows
-void editorOpen(){
-	//line we want to see in our editor
-	char *line = "Hello, world!";
+	int curRow = E.numrows;
 
-	//length of our line including space for a terminating char
-	ssize_t linelen = 13;
+	E.row[curRow].size = len;
 
-	//setting one of our row objects sizes = to linelen to know how much to print out
-	E.row.size = linelen;
+	E.row[curRow].chars = malloc(len + 1);
+	memcpy(E.row[curRow].chars, s, len);
+	E.row[curRow].chars[len] = '\0';
 
-	//allocating memory for the string, will realloc when editing to match what is written
-	E.row.chars = malloc(linelen + 1);
-
-	//copying our string into the char* pointer in the row object,
-	memcpy(E.row.chars, line, linelen);
-
-	//ensure our string is null terminated
-	E.row.chars[linelen] = '\0';
-	
-	//updating our row count
-	E.numrows = 1;
-
+	E.numrows += 1;
 }
 
 
+/*
+	Description:
+User Input: filename
+File operations: find file with name and open
+Printing: Copy first line into erow.
+*/
+void editorOpen(char *filename){
+	//attempts to open the passed in filename
+	FILE *fp = fopen(filename, "r");
+
+	//if filename doesn't exist than throw error
+	if (!fp) die("fopen");
+
+	char *line = NULL;
+	size_t linecap = 0;
+	ssize_t linelen;
+	
+	while((linelen = getline(&line, &linecap, fp)) != -1){
+		//decrement till linelen only includes characters before end of line
+		while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen -1] == '\r')){
+			linelen--;
+			editorAppendRow(line, linelen);
+		}
+	}
+
+	free(line);
+	fclose(fp);
+}
 
 /*** append buffer ***/
 struct abuf{
@@ -307,7 +328,7 @@ void editorDrawRows(struct abuf *ab) {
 		if(y >= E.numrows){
 
 			//Print Centered Welcome Message at top third of editor in center
-			if (y == E.screenrows/3){
+			if (E.numrows == 0 && y == E.screenrows/3){
 				//welcome string, name and version
 				char welcome[80];
 
@@ -331,9 +352,9 @@ void editorDrawRows(struct abuf *ab) {
 		} else {
 
 			//only append erow content that can be read given editor window size
-			int len = E.row.size;
+			int len = E.row[y].size;
 			if (len > E.screencols) len = E.screencols;
-			abAppend(ab, E.row.chars, len);
+			abAppend(ab, E.row[y].chars, len);
 		}
 		//K erases everything to the right of the cursor, cursor moves with printing text
 		abAppend(ab, "\x1b[K" ,3);
@@ -445,15 +466,20 @@ void initEditor(){
 	E.cx = 0;
 	E.cy = 0;
 	E.numrows = 0;
+	E.row = NULL;
 	if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 }
 
-int main(){
+
+int main(int argc, char *argv[]){
 	//enable editor mode
 	enableRawMode();
 	initEditor();
-	editorOpen();	
 
+	//Checking for filename argument. no error handling yet
+	if (argc >= 2){
+		editorOpen(argv[1]);
+	}
 
 	//go till break
 	while(1) {
