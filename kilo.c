@@ -31,6 +31,7 @@
 
 /*** Definitions ***/
 #define KILO_VERSION "0.0.1"
+#define KILO_TAB_STOP 8
 
 //Strips bits 5, 6
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -50,6 +51,9 @@ enum editorKey{
 /*** Data  ***/
 
 typedef struct erow {
+	int rsize;
+	char *render;
+
 	int size;
 	char *chars;
 } erow;
@@ -253,19 +257,47 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /***file i/o ***/
+void editorUpdateRow(erow *row){
+	int tabs = 0;
+
+	for (int j = 0; j < row->size; j++) if (row->chars[j] == '\t') tabs++;
+
+	free(row->render);
+	row->render = malloc(row->size + (tabs * (KILO_TAB_STOP - 1)) + 1);
+
+	int idx;
+	for (int j = 0; j < row->size; j++){
+		if (row->chars[j] == '\t') {
+			row->render[idx++] = ' ';
+			while(idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
+		} else {
+			row->render[idx++] = row->chars[j];
+		}
+	}
+	row->render[idx] = '\0';
+	row->rsize = idx;
+	
+}
+
+
 void editorAppendRow(char *s, size_t len){
 	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow)));
 
 	int curRow = E.numrows;
-
+	//line appending
 	E.row[curRow].size = len;
-
 	E.row[curRow].chars = malloc(len + 1);
 	memcpy(E.row[curRow].chars, s, len);
 	E.row[curRow].chars[len] = '\0';
 
+	//render appending
+	E.row[curRow].rsize = 0;
+	E.row[curRow].render = NULL;
+	editorUpdateRow(&E.row[curRow]);
+
 	E.numrows++;
 }
+
 
 
 /*
@@ -375,10 +407,10 @@ void editorDrawRows(struct abuf *ab) {
 			}	
 		} else {
 			//only append erow content that can be read given editor window size
-			int len = E.row[filerow].size - E.coloff;
+			int len = E.row[filerow].rsize - E.coloff;
 			if(len < 0) len = 0;
 			if (len > E.screencols) len = E.screencols;
-			abAppend(ab, &E.row[filerow].chars[E.coloff], len);
+			abAppend(ab, &E.row[filerow].render[E.coloff], len);
 		}
 		//K erases everything to the right of the cursor, cursor moves with printing text
 		abAppend(ab, "\x1b[K" ,3);
@@ -431,15 +463,11 @@ void editorMoveCursor(int key){
 
 	switch (key) {
 		case ARROW_UP:
-			if(E.cy > 0){
-        			E.cy--;
-			}
+			if(E.cy > 0) E.cy--;
 			break;
 
 		case ARROW_DOWN:
-			if(E.cy < E.numrows){
-				E.cy++;
-			}
+			if(E.cy < E.numrows) E.cy++;
 			break;
 
 		case ARROW_LEFT:
