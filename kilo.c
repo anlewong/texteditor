@@ -106,6 +106,7 @@ void clearScreen();
 void editorSetStatusMessage(const char *fmt, ...);
 void editorRefreshScreen();
 char *editorPrompt(char *prompt);
+int editorRowRXtoCX(erow *r, int rx);
 
 #pragma endregion
 
@@ -461,8 +462,17 @@ void editorFind(){
 	int i;
 	for (i = 0; i < E.numrows; i++){
 		erow *row = &E.row[i];
+		char *match = strstr(row->render, query);
+		if (match) {
+			E.cy = i;
+			E.cx = editorRowRXtoCX(row, match - row->render);
+			E.rowoff = E.numrows;
+			break;
+		}
 
 	}
+
+	free(query);
 }
 
 #pragma endregion
@@ -510,6 +520,21 @@ int editorRowCxToRx(erow *r, int cx){
 
 
 	return rx;
+}
+
+int editorRowRXtoCX(erow *r, int rx){
+	int cur_rx = 0;
+	int cx;
+
+	for (cx = 0; cx < r->size; cx++){
+		if (r->chars[cx] == '\t') cur_rx += (KILO_TAB_STOP - 1) - (cur_rx % KILO_TAB_STOP);
+	
+		cur_rx++;
+		
+		if (cur_rx > rx) return cx;
+	}
+
+	return cx;
 }
 
 void editorScroll(){
@@ -808,6 +833,10 @@ void editorProcessKeypress(){
 			E.farx = E.cx;
 			break;
 
+		case CTRL_KEY('f'):
+			editorFind();
+			break;
+
 		case BACKSPACE:
 		case CTRL_KEY('h'):
 		case DELETE_KEY:
@@ -887,7 +916,7 @@ int main(int argc, char *argv[]){
 	}
 	
 	//status message
-	editorSetStatusMessage("HELP: Ctrl-Q = quit");
+	editorSetStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
 	//go till break
 	while(1) {
