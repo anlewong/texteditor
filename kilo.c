@@ -27,6 +27,7 @@
 //Input Output control Package
 #include <sys/ioctl.h>
 #include <sys/types.h>
+#include <fcntl.h>
 
 //For Status Bar
 #include <time.h>
@@ -40,6 +41,7 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 enum editorKey{
+	BACKSPACE = 127,
 	ARROW_UP =  1000,
 	ARROW_LEFT, 
 	ARROW_DOWN, 
@@ -93,6 +95,7 @@ struct editorConfig E;
 
 /*** Helper Funcs ***/
 void clearScreen();
+void editorSetStatusMessage(const char *fmt, ...);
 
 /*** Terminal Functions ***/
 
@@ -269,6 +272,24 @@ int getWindowSize(int *rows, int *cols) {
 
 /***file i/o ***/
 
+char *editorRowsToString(int *buflen){
+	int totlen = 0;
+	int j;
+	for (j = 0; j < E.numrows; j++) totlen += E.row[j].size + 1;
+	*buflen = totlen;
+
+	char *buf = malloc(totlen);
+	char *p = buf;
+
+	for (j = 0; j < E.numrows; j++){
+		memcpy(p, E.row[j].chars, E.row[j].size);
+		p += E.row[j].size;
+		*p = '\n';
+		p++;
+	}
+	return buf;
+}
+
 void editorUpdateRow(erow *row){
   	int tabs = 0;
 	int j;
@@ -351,6 +372,27 @@ void editorOpen(char *filename){
 	fclose(fp);
 }
 
+void editorSave(){
+	if (E.filename == NULL) return;
+
+	int fd;
+	int len;
+	char *buf = editorRowsToString(&len);
+
+	if ((fd = open(E.filename, O_CREAT | O_RDWR,  0644)) == -1) goto esEnd;
+	if (ftruncate(fd, len) == -1) goto esEnd;
+	if (write(fd, buf, len) != len) goto esEnd;
+		close(fd);
+		free(buf);
+	 	editorSetStatusMessage("%d bytes written to disk", len);
+		return;
+
+esEnd:
+	close(fd);
+	free(buf);
+	editorSetStatusMessage("%d bytes written to disk", len);
+	return;
+}
 /*** append buffer ***/
 struct abuf{
 	char *b;
@@ -592,6 +634,14 @@ void editorProcessKeypress(){
 	
 	//if c is a hotkey, apply case behavior
 	switch (c) {
+		case '\r':
+			/*todo*/
+			break;
+
+		case CTRL_KEY('s'):
+			editorSave();
+			break;
+
 		case CTRL_KEY('q'):
 			clearScreen();
 			exit(0);
@@ -604,6 +654,12 @@ void editorProcessKeypress(){
 		case END_KEY:
 			E.cx = (E.cy < E.numrows) ? E.row[E.cy].size : E.cx;
 			E.farx = E.cx;
+			break;
+
+		case BACKSPACE:
+		case CTRL_KEY('h'):
+		case DELETE_KEY:
+			//todo
 			break;
 		
 		case PAGE_UP:
@@ -627,6 +683,10 @@ void editorProcessKeypress(){
 		case ARROW_LEFT:
 		case ARROW_RIGHT:
 			editorMoveCursor(c);	
+			break;
+
+		case CTRL_KEY('l'):
+		case '\x1b':
 			break;
 		
 		default:
