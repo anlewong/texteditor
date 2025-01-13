@@ -36,6 +36,7 @@
 /*** Definitions ***/
 #define KILO_VERSION "0.0.1"
 #define KILO_TAB_STOP 8
+#define KILO_QUIT_TIMES 3
 
 //Strips bits 5, 6
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -340,8 +341,17 @@ void editorRowInsertChar(erow *row, int at, int c){
 	row->size++;
 	row->chars[at] = c;
 	editorUpdateRow(row);
+	E.dirty++;
 }
 
+void editorRowDelChar(erow *row, int at){
+	if (at < 0 || at > row->size) at = row->size;
+	row->chars = realloc(row->chars, row->size - 1);
+	memmove(&row->chars[at], &row->chars[at+1], row->size - at);
+	row->size--;
+	editorUpdateRow(row);
+	E.dirty++;
+}
 /*
 	Description:
 User Input: filename
@@ -521,9 +531,16 @@ void editorInsertChar(int c){
 	}
 	editorRowInsertChar(&E.row[E.cy], E.cx, c);
 	E.cx++;
-	E.dirty++;
 }
 
+void editorDelChar(){
+	//create row if one doesn't exist
+	if (E.cy == E.numrows){
+		return;
+	}
+	editorRowDelChar(&E.row[E.cy], E.cx);
+	E.cx--;
+}
 
 //any issues later on check this
 //https://github.com/snaptoken/kilo-src/blob/status-bar-right/kilo.c
@@ -637,6 +654,9 @@ void editorMoveCursor(int key){
 }
 
 void editorProcessKeypress(){
+	//maintain count across calls
+	static int quit_times = KILO_QUIT_TIMES;
+
 	//get c from editor
 	int c = editorReadKey();
 	
@@ -651,6 +671,11 @@ void editorProcessKeypress(){
 			break;
 
 		case CTRL_KEY('q'):
+			if (E.dirty && quit_times > 0) {
+				editorSetStatusMessage("WARNING!!! File has unsaved changes." "Press Ctrl-Q %d more times to quit", quit_times);
+				quit_times--;
+				return;
+			}
 			clearScreen();
 			exit(0);
 			break;
@@ -667,7 +692,8 @@ void editorProcessKeypress(){
 		case BACKSPACE:
 		case CTRL_KEY('h'):
 		case DELETE_KEY:
-			//todo
+			if (c == DELETE_KEY) editorMoveCursor(ARROW_RIGHT);
+			editorDelChar();
 			break;
 		
 		case PAGE_UP:
@@ -701,6 +727,8 @@ void editorProcessKeypress(){
 			editorInsertChar(c);
 			break;
 	}
+
+	quit_times = KILO_QUIT_TIMES;
 }
 
 /*** Initialization ***/
