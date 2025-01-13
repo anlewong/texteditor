@@ -308,6 +308,15 @@ void editorAppendRow(char *s, size_t len){
 	E.numrows++;
 }
 
+void editorRowInsertChar(erow *row, int at, int c){
+	if (at < 0 || at > row->size) at = row->size;
+
+	row->chars = realloc(row->chars, row->size+2);
+	memmove(&row->chars[at + 1], &row->chars[at], row->size-at + 1);
+	row->size++;
+	row->chars[at] = c;
+	editorUpdateRow(row);
+}
 /*
 	Description:
 User Input: filename
@@ -368,6 +377,8 @@ void abFree(struct abuf *ab){
 	free(ab->b);
 }
 
+
+/* Row Operations */
 int editorRowCxToRx(erow *r, int cx){
 	int rx = 0;
 	
@@ -453,19 +464,18 @@ void editorDrawRows(struct abuf *ab) {
 	}
 }
 
+/* Editor Operations*/
 
 //any issues later on check this
 //https://github.com/snaptoken/kilo-src/blob/status-bar-right/kilo.c
 void editorDrawStatusBar(struct abuf *ab) {
-	//invert colors
+		//invert colors
 	abAppend(ab, "\x1b[7m", 4);
-
 	//creating bar
 	char status[80];
 	int len = snprintf(status, sizeof(status), "%.20s - %d/%d - %d/%d", E.filename ? E.filename : "[No Name]", E.cx, (E.row[E.cy].size), E.cy, E.numrows);
 
 	abAppend(ab, status, ((len < E.screencols) ? len : E.screencols - len));
-
 	while (len < E.screencols){
 		abAppend(ab, " ", 1);
 		len++;
@@ -502,7 +512,7 @@ void editorRefreshScreen() {
 	abAppend(&ab, "\x1b[H", 3);
 
 	editorDrawRows(&ab);
-	editorDrawStatusBar(&ab);
+	if(E.filename) editorDrawStatusBar(&ab);
 	editorDrawMessageBar(&ab);
 
 	//Reposition Cursor cx, cy
