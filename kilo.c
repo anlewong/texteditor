@@ -315,20 +315,20 @@ void editorUpdateRow(erow *row){
 	row->rsize = idx;
 }
 
-void editorAppendRow(char *s, size_t len){
-	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow)));
+void editorInsertRow(int at, char *s, size_t len){
+	if (at < 0 || at > E.numrows) return;
 
-	int curRow = E.numrows;
+	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow)));
 	//line appending
-	E.row[curRow].size = len;
-	E.row[curRow].chars = malloc(len + 1);
-	memcpy(E.row[curRow].chars, s, len);
-	E.row[curRow].chars[len] = '\0';
+	E.row[at].size = len;
+	E.row[at].chars = malloc(len + 1);
+	memcpy(E.row[at].chars, s, len);
+	E.row[at].chars[len] = '\0';
 
 	//render appending
-	E.row[curRow].rsize = 0;
-	E.row[curRow].render = NULL;
-	editorUpdateRow(&E.row[curRow]);
+	E.row[at].rsize = 0;
+	E.row[at].render = NULL;
+	editorUpdateRow(&E.row[at]);
 
 	E.numrows++;
 	E.dirty++;
@@ -398,7 +398,7 @@ void editorOpen(char *filename){
 		//decrement till linelen only includes characters before end of line
 		while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen -1] == '\r')){
 			linelen--;
-			editorAppendRow(line, linelen);
+			editorInsertRow(E.numrows, line, linelen);
 		}
 	}
 
@@ -547,10 +547,25 @@ void editorDrawRows(struct abuf *ab) {
 void editorInsertChar(int c){
 	//create row if one doesn't exist
 	if (E.cy == E.numrows){
-		editorAppendRow("", 0);
+		editorInsertRow(E.numrows, "", 0);
 	}
 	editorRowInsertChar(&E.row[E.cy], E.cx, c);
 	E.cx++;
+}
+
+void editorInsertNewline(){
+	if (E.cx == 0){
+		editorInsertRow(E.cy, "", 0);
+	} else {
+		erow *row = &E.row[E.cy];
+		editorInsertRow(E.cy + 1, &row->chars[E.cx], row->size - E.cx);
+		row = &E.row[E.cy];
+		row->size = E.cx;
+		row->chars[row->size] = '\0';
+		editorUpdateRow(row);
+	}
+	E.cy++;
+	E.cx = 0;
 }
 
 void editorDelChar(){
@@ -694,7 +709,7 @@ void editorProcessKeypress(){
 	//if c is a hotkey, apply case behavior
 	switch (c) {
 		case '\r':
-			/*todo*/
+			editorInsertNewline();
 			break;
 
 		case CTRL_KEY('s'):
