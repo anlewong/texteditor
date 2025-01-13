@@ -334,6 +334,19 @@ void editorAppendRow(char *s, size_t len){
 	E.dirty++;
 }
 
+void editorFreeRow(erow *row) {
+	free(row->render);
+	free(row->chars);
+}
+
+void editorDelRow(int at){
+	if(at < 0 || at >= E.numrows) return;
+	editorFreeRow(&E.row[at]);
+	memmove(&E.row[at], &E.row[at+1], sizeof(erow) * (E.numrows - at - 1));
+	E.numrows--;
+	E.dirty++;
+}
+
 void editorRowInsertChar(erow *row, int at, int c){
 	if (at < 0 || at > row->size) at = row->size;
 	row->chars = realloc(row->chars, row->size + 2);
@@ -344,9 +357,17 @@ void editorRowInsertChar(erow *row, int at, int c){
 	E.dirty++;
 }
 
+void editorRowAppendString(erow *row, char *s, size_t len){
+	row->chars = realloc(row->chars, row->size + len + 1);
+	memcpy(&row->chars[row->size], s, len); //erase curr null char
+	row->size += len;
+	row->chars[row->size] = '\0';
+	editorUpdateRow(row);
+	E.dirty++;
+}
+
 void editorRowDelChar(erow *row, int at){
-	if (at < 0 || at > row->size) at = row->size;
-	row->chars = realloc(row->chars, row->size - 1);
+	if (at < 0 || at > row->size) return;
 	memmove(&row->chars[at], &row->chars[at+1], row->size - at);
 	row->size--;
 	editorUpdateRow(row);
@@ -435,7 +456,6 @@ void abAppend(struct abuf *ab, char *s, int len){
 void abFree(struct abuf *ab){
 	free(ab->b);
 }
-
 
 /* Row Operations */
 int editorRowCxToRx(erow *r, int cx){
@@ -535,11 +555,22 @@ void editorInsertChar(int c){
 
 void editorDelChar(){
 	//create row if one doesn't exist
-	if (E.cy == E.numrows){
-		return;
+	if (E.cy == E.numrows) return;
+	if (E.cx == 0 && E.cy == 0) return;
+
+	erow *row = &E.row[E.cy];
+	if (E.cx > 0) {
+		editorRowDelChar(&E.row[E.cy], E.cx);
+		E.cx--;
+	} else {
+		E.cx = E.row[E.cy - 1].size;
+		editorRowAppendString(&E.row[E.cy - 1], row->chars, row->size);
+		editorDelRow(E.cy);
+		E.cy--;
 	}
-	editorRowDelChar(&E.row[E.cy], E.cx);
-	E.cx--;
+
+
+	
 }
 
 //any issues later on check this
