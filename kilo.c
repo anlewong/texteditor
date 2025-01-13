@@ -1,5 +1,4 @@
-/*** Packages ***/
-
+#pragma region /*** Packages ***/
 //Terminal Package
 #include <termios.h>
 
@@ -33,13 +32,16 @@
 #include <time.h>
 #include <stdarg.h>
 
-/*** Definitions ***/
+#pragma endregion
+
+#pragma region /*** Definitions ***/
 #define KILO_VERSION "0.0.1"
 #define KILO_TAB_STOP 8
 #define KILO_QUIT_TIMES 3
 
 //Strips bits 5, 6
 #define CTRL_KEY(k) ((k) & 0x1f)
+
 
 enum editorKey{
 	BACKSPACE = 127,
@@ -53,8 +55,9 @@ enum editorKey{
 	END_KEY,
 	DELETE_KEY
 };
+#pragma endregion
 
-/*** Data  ***/
+#pragma region /*** Data  ***/
 
 typedef struct erow {
 	int rsize;
@@ -95,12 +98,15 @@ struct editorConfig {
 
 //Global Data
 struct editorConfig E;
+#pragma endregion
 
-/*** Helper Funcs ***/
+#pragma region /*** Helper Funcs ***/
 void clearScreen();
 void editorSetStatusMessage(const char *fmt, ...);
+void editorRefreshScreen();
+#pragma endregion
 
-/*** Terminal Functions ***/
+#pragma region /*** Terminal Functions ***/
 
 //Handling Errors
 void die(const char*s){
@@ -245,8 +251,9 @@ int getCursorPosition(int *rows, int *cols) {
 
 	return 0;
 }
+#pragma endregion
 
-/*** output ***/
+#pragma region /*** output ***/
 void clearScreen(){
 	write(STDOUT_FILENO, "\x1B[2J", 4);
 	write(STDOUT_FILENO, "\x1b[H", 3);
@@ -272,8 +279,9 @@ int getWindowSize(int *rows, int *cols) {
 		return 0;
 	}
 }
+#pragma endregion
 
-/***file i/o ***/
+#pragma region /***file i/o ***/
 
 char *editorRowsToString(int *buflen){
 	int totlen = 0;
@@ -373,6 +381,9 @@ void editorRowDelChar(erow *row, int at){
 	editorUpdateRow(row);
 	E.dirty++;
 }
+#pragma endregion
+
+#pragma region //Editor Open/Save
 /*
 	Description:
 User Input: filename
@@ -430,7 +441,9 @@ esEnd:
 	editorSetStatusMessage("%d bytes written to disk", len);
 	return;
 }
-/*** append buffer ***/
+#pragma endregion
+
+#pragma region /*** append buffer ***/
 struct abuf{
 	char *b;
 	int len;
@@ -456,8 +469,9 @@ void abAppend(struct abuf *ab, char *s, int len){
 void abFree(struct abuf *ab){
 	free(ab->b);
 }
+#pragma endregion
 
-/* Row Operations */
+#pragma region//Row Operations
 int editorRowCxToRx(erow *r, int cx){
 	int rx = 0;
 	
@@ -542,8 +556,9 @@ void editorDrawRows(struct abuf *ab) {
 		abAppend(ab, "\r\n", 3);
 	}
 }
+#pragma endregion
 
-/* Editor Operations*/
+#pragma region //Editor Functions
 void editorInsertChar(int c){
 	//create row if one doesn't exist
 	if (E.cy == E.numrows){
@@ -658,8 +673,9 @@ void editorSetStatusMessage(const char *fmt, ...){
 	va_end(ap);
 	E.statusmsg_time = time(NULL);
 }
+#pragma endregion
 
-/*** input ***/
+#pragma region /*** input ***/
 void editorMoveCursor(int key){
 	erow *row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy];
 
@@ -776,6 +792,7 @@ void editorProcessKeypress(){
 
 	quit_times = KILO_QUIT_TIMES;
 }
+#pragma endregion
 
 /*** Initialization ***/
 void initEditor(){
