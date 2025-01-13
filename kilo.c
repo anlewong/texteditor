@@ -81,6 +81,9 @@ struct editorConfig {
 	int numrows;
 	erow *row;
 
+	//editing status
+	int dirty;
+
 	//status bar
 	char *filename;
 	char statusmsg[80];
@@ -88,7 +91,6 @@ struct editorConfig {
 
 	struct termios orig_termios;
 };
-
 
 //Global Data
 struct editorConfig E;
@@ -328,6 +330,7 @@ void editorAppendRow(char *s, size_t len){
 	editorUpdateRow(&E.row[curRow]);
 
 	E.numrows++;
+	E.dirty++;
 }
 
 void editorRowInsertChar(erow *row, int at, int c){
@@ -370,6 +373,7 @@ void editorOpen(char *filename){
 
 	free(line);
 	fclose(fp);
+	E.dirty = 0;
 }
 
 void editorSave(){
@@ -384,12 +388,14 @@ void editorSave(){
 	if (write(fd, buf, len) != len) goto esEnd;
 		close(fd);
 		free(buf);
+		E.dirty = 0;
 	 	editorSetStatusMessage("%d bytes written to disk", len);
 		return;
 
 esEnd:
 	close(fd);
 	free(buf);
+	E.dirty = 0;
 	editorSetStatusMessage("%d bytes written to disk", len);
 	return;
 }
@@ -515,6 +521,7 @@ void editorInsertChar(int c){
 	}
 	editorRowInsertChar(&E.row[E.cy], E.cx, c);
 	E.cx++;
+	E.dirty++;
 }
 
 
@@ -525,7 +532,8 @@ void editorDrawStatusBar(struct abuf *ab) {
 	abAppend(ab, "\x1b[7m", 4);
 	//creating bar
 	char status[80];
-	int len = snprintf(status, sizeof(status), "%.20s - %d/%d - %d/%d", E.filename ? E.filename : "[No Name]", E.cx, (E.row[E.cy].size), E.cy, E.numrows);
+	
+	int len = snprintf(status, sizeof(status), "%.20s - %d/%d - %d/%d| %d %s", E.filename ? E.filename : "[No Name]", E.cx, (E.row[E.cy].size), E.cy, E.numrows, E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
 
 	abAppend(ab, status, ((len < E.screencols) ? len : E.screencols - len));
 	while (len < E.screencols){
@@ -707,6 +715,9 @@ void initEditor(){
 	E.rowoff = 0;
 	E.coloff = 0;
 	E.row = NULL;
+
+	//file status
+	E.dirty = 0;
 
 	//status bar
 	E.filename = NULL;
