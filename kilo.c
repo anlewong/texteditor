@@ -289,16 +289,16 @@ int getWindowSize(int *rows, int *cols) {
 
 char *editorRowsToString(int *buflen){
 	int totlen = 0;
-	int j;
-	for (j = 0; j < E.numrows; j++) totlen += E.row[j].size + 1;
+	int i;
+	for (i = 0; i < E.numrows; i++) totlen += E.row[i].size + 1;
 	*buflen = totlen;
 
 	char *buf = malloc(totlen);
 	char *p = buf;
 
-	for (j = 0; j < E.numrows; j++){
-		memcpy(p, E.row[j].chars, E.row[j].size);
-		p += E.row[j].size;
+	for (i = 0; i < E.numrows; i++){
+		memcpy(p, E.row[i].chars, E.row[i].size);
+		p += E.row[i].size;
 		*p = '\n';
 		p++;
 	}
@@ -307,20 +307,20 @@ char *editorRowsToString(int *buflen){
 
 void editorUpdateRow(erow *row){
   	int tabs = 0;
-	int j;
-	for (j = 0; j < row->size; j++)
-	if (row->chars[j] == '\t') tabs++;
+	int i;
+	for (i = 0; i < row->size; i++)
+	if (row->chars[i] == '\t') tabs++;
 
 	free(row->render);
 	row->render = malloc(row->size + tabs*(KILO_TAB_STOP - 1) + 1);
 
 	int idx = 0;
-	for (j = 0; j < row->size; j++){
-	if (row->chars[j] == '\t') {
+	for (i = 0; i < row->size; i++){
+	if (row->chars[i] == '\t') {
 		row->render[idx++] = ' ';
 		while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
 	} else {
-		row->render[idx++] = row->chars[j];
+		row->render[idx++] = row->chars[i];
 	}
 	}
 	row->render[idx] = '\0';
@@ -387,9 +387,8 @@ void editorRowDelChar(erow *row, int at){
 	editorUpdateRow(row);
 	E.dirty++;
 }
-#pragma endregion
 
-#pragma region //Editor Open/Save
+//Editor Open/Save
 /*
 	Description:
 User Input: filename
@@ -454,6 +453,20 @@ esEnd:
 }
 #pragma endregion
 
+#pragma region //Find
+void editorFind(){
+	char *query = editorPrompt("Search: %s (ESC to cancel)");
+	if (query == NULL) return;
+
+	int i;
+	for (i = 0; i < E.numrows; i++){
+		erow *row = &E.row[i];
+
+	}
+}
+
+#pragma endregion
+
 #pragma region /*** append buffer ***/
 struct abuf{
 	char *b;
@@ -491,8 +504,8 @@ int editorRowCxToRx(erow *r, int cx){
 		return rx;
 	} 
 
-	for (int j = 0; j < cx; j++){
-		rx += (r->chars[j] == '\t') ? ((KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP)) + 1 : 1;
+	for (int i = 0; i < cx; i++){
+		rx += (r->chars[i] == '\t') ? ((KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP)) + 1 : 1;
 	}
 
 
