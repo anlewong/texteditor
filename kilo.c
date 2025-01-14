@@ -170,22 +170,22 @@ void enableRawMode()//Change Terminal Attributes to enable "RAW MODE"
 	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr"); //Set terminal to modified 'raw' state
 }
 
-//Special and Reg Character Handling
-int editorReadKey(){
-	int nread;
-	char c;
+int editorReadKey() //input handling
+{
+	int nread; //bytes read
+	char c; //curr char read
 	//Spin lock till c is valid character
-	while ((nread = read(STDIN_FILENO, &c, 1)) != 1){
-		if (nread == -1 && errno != EAGAIN) die("read");
+	while ((nread = read(STDIN_FILENO, &c, 1)) != 1) //spin lock till valid character
+	{
+		if (nread == -1 && errno != EAGAIN) die("read"); //Ignore Timeout, Error Handling
 	}
-	
-	//check if escape seq
-	if(c == '\x1b'){
+	if(c == '\x1b') //c is Escape Seq
+	{
 		//hold potential special commands
-		char seq[3];
+		char seq[3]; //max special command length
 		
-		//make sure it reads some arg after escape char
-		if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+		//3 > valid command >= 2
+		if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b'; 
 		if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
 		//valid seq
@@ -231,33 +231,20 @@ int editorReadKey(){
 	return c;
 }
 
-//Locate Cursos for drawing
-int getCursorPosition(int *rows, int *cols) {
-	//holds returned position pair
-	char buf[32];
-
-	//length buf needs to hold?
-	unsigned int i = 0;
-	
-	//returns cursor posiiton to std out
-	if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
-	
-	//reads cursor location into buf;
-	while(read(STDIN_FILENO, &buf[i], 1) == 1){
-		if(buf[i] == 'R') break;
-		i++;
+int getCursorPosition(int *rows, int *cols) //Get Cursor Posiition in Window | Pass back rowXcol posiiton
+{
+	char buf[32]; //Buffer to hold system coordinate pair response
+	unsigned int i = 0; //buffer length var
+	if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1; //Ask system for cursors pos
+	while(read(STDIN_FILENO, &buf[i], 1) == 1) //read system response into buf
+	{
+		if(buf[i] == 'R') break; //break on last char of coordinate pair
+		i++; //increment message length
 	}	
-	
-	//sets last char so string interpetable	
-	buf[i] = '\0';
-
-	//ensure return argument is a command sequence	
-	if(buf[0] != '\x1b' || buf[1] != '[') return -1;
-
-	//Ensure return argument finds two digits, one for row and cols
- 	if(sscanf(&buf[2], "%d;%d", rows, cols) == -2) return -1;
-
-	return 0;
+	buf[i] = '\0'; //set last char of buf to string terminator
+	if(buf[0] != '\x1b' || buf[1] != '[') return -1; //validate that sys response is a command seq
+ 	if(sscanf(&buf[2], "%d;%d", rows, cols) == -2) return -1; //validate coordinate pair & pass row, col values to parent via input arg pointers
+	return 0; //Row/Col passed up through *rows, *cols.
 }
 #pragma endregion
 
