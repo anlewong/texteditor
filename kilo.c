@@ -498,17 +498,26 @@ void editorDrawRows(struct abuf *ab) {
 			if (len > E.screencols) len = E.screencols; //If len > E.screencols, truncate lenght to just num of columns			
 			char *c = &E.row[filerow].render[E.coloff]; //Points to current row's render string
 			unsigned char *hl = &E.row[filerow].hl[E.coloff]; //Pointer to Current Row's HL scheme
+			int current_color = -1; //basic color mem var
 			int j; //loop variable
 			for (j = 0; j < len; j++) //loop through formatted render string (frs)
 			{
 				if (hl[j] == HL_NORMAL){
-					abAppend(ab, "\x1b[39m", 5); //set output to def color
+					if(current_color != -1) //check if curr color not default
+					{
+						abAppend(ab, "\x1b[39m", 5); //set output to def color
+						current_color = -1;
+					}
 					abAppend(ab, &c[j], 1); //append curr char
 				} else {
 					int color = editorSyntaxToColor(hl[j]); //get hl encoding
-					char buf[16]; //hold set color command
-					int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color); //set buf to color command
-					abAppend(ab, buf, clen); //set color to HL code.
+					if (color != current_color) //is curr color new color?
+					{
+						current_color = color; //set curr color to new color
+						char buf[16]; //hold set color command
+						int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color); //set buf to color command
+						abAppend(ab, buf, clen); //set color to HL code.
+					}
 					abAppend(ab, &c[j], 1); //append curr char
 				}
 			}
