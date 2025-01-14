@@ -59,7 +59,8 @@ enum editorKey //enumurate special keys
 enum editorHighlight //string class coloring
 {
 	HL_NORMAL = 0,
-	HL_NUMBER
+	HL_NUMBER,
+	HL_MATCH //for searches/find
 };
 
 #pragma endregion
@@ -295,6 +296,7 @@ int editorSyntaxToColor(int hl) //return ASCII color code given HL spec
 {
 	switch (hl){
 		case HL_NUMBER: return 31; //red
+		case HL_MATCH: return 34; //blue
 		default: return 37; //def: white
 	}
 }
@@ -748,39 +750,60 @@ esEnd:
 
 #pragma region //Find
 void editorFindCallback(char *query, int key) {
-	static int last_match = -1;
-	static int direction = 1;
+	static int last_match = -1; //last match maintain throuhgout calls
+	static int direction = 1; //search dir  maintain throuhgout calls
+	
+	static int saved_hl_line; //track higlighted match line
+	static char *saved_hl = NULL; //Store original line settings
+
+	if (saved_hl)  // a saved hl exists
+	{
+		memcpy(E.row[saved_hl_line].hl, saved_hl, E.row[saved_hl_line].rsize); //copy original settings back into row
+		free(saved_hl); //free string so no trigger next time;
+		saved_hl = NULL; //reset to null.
+	}
+
 
 	//set's our direction and curr match
-	if (key == '\r' || key == '\x1b') {
+	if (key == '\r' || key == '\x1b') //exits search if escape/enter pressed
+	{
 		last_match = -1;
 		direction = 1;
 		return;
-	} else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
+	} else if (key == ARROW_RIGHT || key == ARROW_DOWN) //next match
+	{
 		direction = 1; 
-	} else if (key == ARROW_LEFT || key == ARROW_UP) {
+	} else if (key == ARROW_LEFT || key == ARROW_UP) //prev match
+	{
 		direction = -1; 
-	} else {
-		last_match = -1;
+	} else //maintain match
+	{
+		last_match = -1; 
 		direction = 1;
 	}
 
-	//sets up curr match
-	if (last_match == -1) direction = 1;
-	int current = last_match;
-	int i;
-	for (i = 0; i < E.numrows; i++){
-		current += direction;
-		if (current == -1) current = E.numrows -1;
-		else if (current == E.numrows) current = 0;
+	if (last_match == -1) direction = 1; //reset direction to 1
+	int current = last_match; //set current match
+	int i; //loop counter
+	for (i = 0; i < E.numrows; i++) //iterate through rows
+	{
+		current += direction; //go to next match
+		if (current == -1) current = E.numrows -1; //if last match go to first match
+		else if (current == E.numrows) current = 0; //if first match go to last match
 
-		erow *row = &E.row[current];
-		char *match = strstr(row->render, query);
-		if (match) {
-			last_match = current;
-			E.cy = current;
-			E.cx = editorRowRXtoCX(row, match - row->render);
-			E.rowoff = E.numrows;
+		erow *row = &E.row[current]; //temp row for internal use
+		char *match = strstr(row->render, query); //check row for matches and return string
+		if (match) //match found
+		{
+			last_match = current; //set last_match to curr
+			E.cy = current; //update cursor position to point to match
+			E.cx = editorRowRXtoCX(row, match - row->render); //convert rx to cx and move mouse to match
+			E.rowoff = E.numrows; //position match at top of editor
+			
+			saved_hl_line = current; //saving match line
+			saved_hl = malloc (row->rsize); //allocate 'render' space
+			memcpy(saved_hl, row->hl, row->rsize); //save original 'rendered' hl scheme
+			memset(&row->hl[E.cx], HL_MATCH, strlen(query)); //set match color to blue
 			break;
 		}
 
@@ -806,7 +829,6 @@ void editorFind(){
 }
 
 #pragma endregion
-
 
 #pragma region /*** input ***/
 char *editorPrompt(char *prompt, void(*callback)(char *, int)){
