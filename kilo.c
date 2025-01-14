@@ -599,33 +599,18 @@ void editorScroll(){
 }
 
 void editorDrawRows(struct abuf *ab) {
-	//counter var for loops
-	int y;
-
-	//loop through local 'visible' rows
-	for (y=0; y < E.screenrows; y++){
-
-		//Global row
-		int filerow = y + E.rowoff;
-
-		//>= Allocatd Rows
-		if(filerow >= E.numrows){
-			
-
-			//Check Empty file, Position 1/3 from top
-			if (E.numrows == 0 && y == E.screenrows/3){
-				//MessageBuf
-				char welcome[80];
-
-				//Editor Version Message, Records Length
-				int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo Editor -- version %s", KILO_VERSION);
-			
-				//Truncate len to 'visible' local columns
-				if (welcomelen > E.screencols) welcomelen = E.screencols;
-			
-				//Find Distance to Middle of screen
-				int padding = (E.screencols - welcomelen)/2;
-
+	int y; //counter var for loops
+	for (y=0; y < E.screenrows; y++) //loop through local 'visible' rows
+	{
+		int filerow = y + E.rowoff; //Global row
+		if(filerow >= E.numrows) //>= Allocatd Rows
+		{
+			if (E.numrows == 0 && y == E.screenrows/3) //Check Empty file, Position 1/3 from top
+			{
+				char welcome[80]; //MessageBuf
+				int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo Editor -- version %s", KILO_VERSION); //Editor Version Message, Records Length
+				if (welcomelen > E.screencols) welcomelen = E.screencols; //Truncate len to 'visible' local columns
+				int padding = (E.screencols - welcomelen)/2; //Find Distance to Middle of screen
 				//Place Cursor in middle of screen
 				if (padding){
 					abAppend(ab, "~", 1);
@@ -633,28 +618,32 @@ void editorDrawRows(struct abuf *ab) {
 				}
 				while(padding--) abAppend(ab, " ", 1);	
 
-				//Print Welcome Message
-				abAppend(ab, welcome, welcomelen);
+				abAppend(ab, welcome, welcomelen); //Print Welcome Message
 			} else {
-				//Tilda Empty Lines
-				abAppend(ab, "~", 1);		
+				abAppend(ab, "~", 1); //Tilda Empty Lines	
 			}
 		} else //Global Row within allocated rows
 		{
-			//set length to available columns
-			int len = E.row[filerow].rsize - E.coloff;
-			//If len < 0, enough columns for whole message
-			if(len < 0) len = 0;
-
-			//If len > E.screencols, truncate lenght to just num of columns
-			if (len > E.screencols) len = E.screencols;
-
-			//render current row and 'visible' columns
-			abAppend(ab, &E.row[filerow].render[E.coloff], len);	
+			
+			int len = E.row[filerow].rsize - E.coloff; //set length to available columns
+			if(len < 0) len = 0; //If len < 0, enough columns for whole message
+			if (len > E.screencols) len = E.screencols; //If len > E.screencols, truncate lenght to just num of columns			
+			char *c = &E.row[filerow].render[E.coloff]; //Points to current row's render string
+				int j; //loop variable
+				for (j = 0; j < len; j++) //loop through formatted render string (frs)
+				{
+					if (isdigit(c[j]))//check if frs[j] = [0-9]
+					{
+						abAppend(ab, "\x1b[31m", 5); //font color: white -> red
+						abAppend(ab, &c[j], 1);//append red number char
+						abAppend(ab, "\x1b[39m", 5); //font color: red -> white
+					} else {
+						abAppend(ab, &c[j], 1);//append white non-number char
+					}
+				}
 		}
-		//K erases everything to the right of the cursor, cursor moves with printing text
-		abAppend(ab, "\x1b[K" ,3);
-		abAppend(ab, "\r\n", 3);
+		abAppend(ab, "\x1b[K" ,3); //Erase right of cursor
+		abAppend(ab, "\r\n", 3); //Newline
 	}
 }
 
