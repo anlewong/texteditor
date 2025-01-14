@@ -341,7 +341,7 @@ char *editorRowsToString(int *buflen) //Editor representation -> Buf
 	return buf; //return buffer containing all informatoin held by editor
 }
 
-void editorUpdateRow(erow *row) //creates 'visible'/'rendered' formatted rows
+void editorUpdateRow(erow *row) //updates 'rendered' row and highlight scheme
 {
   	int tabs = 0; //tab counter
 	int i; //loop counter
@@ -362,6 +362,8 @@ void editorUpdateRow(erow *row) //creates 'visible'/'rendered' formatted rows
 	}
 	row->render[idx] = '\0';//terminate 'rendered' string
 	row->rsize = idx; //'render' size = last 'render' index
+
+	editorUpdateSyntax(row); //create highlight scheme for row
 }
 
 void editorInsertRow(int at, char *s, size_t len) //create and insert erow
