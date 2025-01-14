@@ -55,6 +55,13 @@ enum editorKey //enumurate special keys
 	END_KEY,
 	DELETE_KEY
 };
+
+enum editorHighlight //string class coloring
+{
+	HL_NORMAL = 0,
+	HL_NUMBER
+};
+
 #pragma endregion
 
 #pragma region /*** Data  ***/
@@ -103,7 +110,7 @@ struct editorConfig {
 };
 
 //Global Data
-struct editorConfig E;
+struct editorConfig E; //editor object/struct
 
 #pragma endregion
 
@@ -243,14 +250,12 @@ int getCursorPosition(int *rows, int *cols) //Get Cursor Posiition in Window | P
  	if(sscanf(&buf[2], "%d;%d", rows, cols) == -2) return -1; //validate coordinate pair & pass row, col values to parent via input arg pointers
 	return 0; //Row/Col passed up through *rows, *cols.
 }
-#pragma endregion
 
-#pragma region /*** output ***/
-void clearScreen(){
-	write(STDOUT_FILENO, "\x1B[2J", 4);
-	write(STDOUT_FILENO, "\x1b[H", 3);
+void clearScreen() //erases terminal screen
+{
+	write(STDOUT_FILENO, "\x1B[2J", 4); //Erase Entire Screen
+	write(STDOUT_FILENO, "\x1b[H", 3); //Place Cursor Top Left
 }
-
 
 int getWindowSize(int *rows, int *cols) //grab window size from os, pass back hxw or rxc
 {
@@ -269,9 +274,52 @@ int getWindowSize(int *rows, int *cols) //grab window size from os, pass back hx
 		return 0;
 	}
 }
+
+/***Syntax Highlighting ***/
+
+void editorUpdateSyntax(erow *row) //update styling string for a row
+{
+	row->hl = realloc(row->hl, row->rsize); //allocate HL enough mem to store encodings for entire rendered string
+	memset(row->hl, HL_NORMAL, row->rsize); //Iniitally set HL to have every char normal color
+
+	int i; //loop var
+	for (i = 0; i< row->rsize; i++) //iterate through rendered string
+	{
+		if (isdigit(row->render[i])) row->hl[i] = HL_NUMBER; //If curr rendered char is num, indicate number coloring in HL styling string
+	}
+}
+
 #pragma endregion
 
-#pragma region /***file i/o ***/
+#pragma region /*** append buffer ***/
+struct abuf{
+	char *b;
+	int len;
+};
+
+#define ABUF_INIT {NULL, 0}
+
+void abAppend(struct abuf *ab, char *s, int len){
+	//allocate mem to hold old and new string
+	char *new = realloc(ab->b, ab->len + len);
+	
+	//err handle if realloc fail
+	if(new == NULL) return;
+
+	//copy the new string to the end of the old one
+	memcpy(&new[ab->len], s, len);
+
+	//set abuf to bethe new string pointer an dlength
+	ab->b = new;
+	ab->len += len;
+}
+
+void abFree(struct abuf *ab){
+	free(ab->b);
+}
+#pragma endregion
+
+#pragma region //Row Operations
 
 char *editorRowsToString(int *buflen) //Editor representation -> Buf
 {
@@ -376,158 +424,6 @@ void editorRowDelChar(erow *row, int at){
 	E.dirty++;
 }
 
-//Editor Open/Save
-/* Description: User Input: filename File operations: find file with name and open Printing: Copy first line into erow.*/
-void editorOpen(char *filename){
-	free(E.filename);
-	E.filename = malloc(strlen(filename));
-
-	memcpy(E.filename, filename, strlen(filename));
-
-	//attempts to open the passed in filename
-	FILE *fp = fopen(filename, "r");
-
-	//if filename doesn't exist than throw error
-	if (!fp) die("fopen");
-
-	char *line = NULL;
-	size_t linecap = 0;
-	ssize_t linelen;
-	
-	while((linelen = getline(&line, &linecap, fp)) != -1){
-		//decrement till linelen only includes characters before end of line
-		while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen -1] == '\r')){
-			linelen--;	
-		}
-		editorInsertRow(E.numrows, line, linelen);
-	}
-
-	free(line);
-	fclose(fp);
-	E.dirty = 0;
-}
-
-void editorSave(){
-	if (E.filename == NULL) {		
-		if ((E.filename = editorPrompt("Save as: %s (ESC to cancel)", NULL)) == NULL) {
-			editorSetStatusMessage("Save Aborted");
-			return;
-		}
-	} 
-
-	int fd;
-	int len;
-	char *buf = editorRowsToString(&len);
-
-	if ((fd = open(E.filename, O_CREAT | O_RDWR,  0644)) == -1) goto esEnd;
-	if (ftruncate(fd, len) == -1) goto esEnd;
-	if (write(fd, buf, len) != len) goto esEnd;
-		close(fd);
-		free(buf);
-		E.dirty = 0;
-	 	editorSetStatusMessage("%d bytes written to disk", len);
-		return;
-
-esEnd:
-	close(fd);
-	free(buf);
-	E.dirty = 0;
-	editorSetStatusMessage("%d bytes written to disk", len);
-	return;
-}
-
-#pragma endregion
-
-#pragma region //Find
-void editorFindCallback(char *query, int key) {
-	static int last_match = -1;
-	static int direction = 1;
-
-	//set's our direction and curr match
-	if (key == '\r' || key == '\x1b') {
-		last_match = -1;
-		direction = 1;
-		return;
-	} else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
-		direction = 1; 
-	} else if (key == ARROW_LEFT || key == ARROW_UP) {
-		direction = -1; 
-	} else {
-		last_match = -1;
-		direction = 1;
-	}
-
-	//sets up curr match
-	if (last_match == -1) direction = 1;
-	int current = last_match;
-	int i;
-	for (i = 0; i < E.numrows; i++){
-		current += direction;
-		if (current == -1) current = E.numrows -1;
-		else if (current == E.numrows) current = 0;
-
-		erow *row = &E.row[current];
-		char *match = strstr(row->render, query);
-		if (match) {
-			last_match = current;
-			E.cy = current;
-			E.cx = editorRowRXtoCX(row, match - row->render);
-			E.rowoff = E.numrows;
-			break;
-		}
-
-	}
-
-}
-
-void editorFind(){
-	int saved_cx = E.cx;
-	int saved_cy = E.cy;
-	int saved_coloff = E.coloff;
-	int saved_rowoff = E.rowoff;
-
-	char *query = editorPrompt("Search: %s (Use ESC/Arrows/Enter)", editorFindCallback);
-	if (query){
-		free(query);
-	} else {
-		E.cx = saved_cx;
-		E.cy = saved_cy;
-		E.coloff = saved_coloff;
-		E.rowoff = saved_rowoff;
-	}
-}
-
-#pragma endregion
-
-#pragma region /*** append buffer ***/
-struct abuf{
-	char *b;
-	int len;
-};
-
-#define ABUF_INIT {NULL, 0}
-
-void abAppend(struct abuf *ab, char *s, int len){
-	//allocate mem to hold old and new string
-	char *new = realloc(ab->b, ab->len + len);
-	
-	//err handle if realloc fail
-	if(new == NULL) return;
-
-	//copy the new string to the end of the old one
-	memcpy(&new[ab->len], s, len);
-
-	//set abuf to bethe new string pointer an dlength
-	ab->b = new;
-	ab->len += len;
-}
-
-void abFree(struct abuf *ab){
-	free(ab->b);
-}
-#pragma endregion
-
-#pragma region//Row Operations
 int editorRowCxToRx(erow *r, int cx){
 	int rx = 0;
 	
@@ -557,28 +453,6 @@ int editorRowRXtoCX(erow *r, int rx){
 	}
 
 	return cx;
-}
-
-void editorScroll(){
-	//rx settings
-	E.rx = 0;
-	if (E.cy < E.numrows) {
-		E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
-	}
-	//vert scroll
-	if (E.cy < E.rowoff) {
-		E.rowoff = E.cy;
-	}
-	if (E.cy >= E.rowoff + E.screenrows){
-		E.rowoff = E.cy - E.screenrows + 1;
-	}
-	//horizontal scroll
-	if (E.cx < E.coloff){
-		E.coloff = E.rx;
-	}
-	if (E.cx >= E.coloff + E.screencols){
-		E.coloff = E.rx - E.screencols + 1;
-	}
 }
 
 void editorDrawRows(struct abuf *ab) {
@@ -633,6 +507,29 @@ void editorDrawRows(struct abuf *ab) {
 #pragma endregion
 
 #pragma region //Editor Functions
+
+void editorScroll(){
+	//rx settings
+	E.rx = 0;
+	if (E.cy < E.numrows) {
+		E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+	}
+	//vert scroll
+	if (E.cy < E.rowoff) {
+		E.rowoff = E.cy;
+	}
+	if (E.cy >= E.rowoff + E.screenrows){
+		E.rowoff = E.cy - E.screenrows + 1;
+	}
+	//horizontal scroll
+	if (E.cx < E.coloff){
+		E.coloff = E.rx;
+	}
+	if (E.cx >= E.coloff + E.screencols){
+		E.coloff = E.rx - E.screencols + 1;
+	}
+}
+
 void editorInsertChar(int c){
 	//create row if one doesn't exist
 	if (E.cy == E.numrows){
@@ -761,6 +658,131 @@ void editorSetStatusMessage(const char *fmt, ...){
 	E.statusmsg_time = time(NULL);
 }
 #pragma endregion
+
+#pragma region /***file i/o ***/
+//Editor Open/Save
+/* Description: User Input: filename File operations: find file with name and open Printing: Copy first line into erow.*/
+void editorOpen(char *filename){
+	free(E.filename);
+	E.filename = malloc(strlen(filename));
+
+	memcpy(E.filename, filename, strlen(filename));
+
+	//attempts to open the passed in filename
+	FILE *fp = fopen(filename, "r");
+
+	//if filename doesn't exist than throw error
+	if (!fp) die("fopen");
+
+	char *line = NULL;
+	size_t linecap = 0;
+	ssize_t linelen;
+	
+	while((linelen = getline(&line, &linecap, fp)) != -1){
+		//decrement till linelen only includes characters before end of line
+		while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen -1] == '\r')){
+			linelen--;	
+		}
+		editorInsertRow(E.numrows, line, linelen);
+	}
+
+	free(line);
+	fclose(fp);
+	E.dirty = 0;
+}
+
+void editorSave(){
+	if (E.filename == NULL) {		
+		if ((E.filename = editorPrompt("Save as: %s (ESC to cancel)", NULL)) == NULL) {
+			editorSetStatusMessage("Save Aborted");
+			return;
+		}
+	} 
+
+	int fd;
+	int len;
+	char *buf = editorRowsToString(&len);
+
+	if ((fd = open(E.filename, O_CREAT | O_RDWR,  0644)) == -1) goto esEnd;
+	if (ftruncate(fd, len) == -1) goto esEnd;
+	if (write(fd, buf, len) != len) goto esEnd;
+		close(fd);
+		free(buf);
+		E.dirty = 0;
+	 	editorSetStatusMessage("%d bytes written to disk", len);
+		return;
+
+esEnd:
+	close(fd);
+	free(buf);
+	E.dirty = 0;
+	editorSetStatusMessage("%d bytes written to disk", len);
+	return;
+}
+
+#pragma endregion
+
+#pragma region //Find
+void editorFindCallback(char *query, int key) {
+	static int last_match = -1;
+	static int direction = 1;
+
+	//set's our direction and curr match
+	if (key == '\r' || key == '\x1b') {
+		last_match = -1;
+		direction = 1;
+		return;
+	} else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
+		direction = 1; 
+	} else if (key == ARROW_LEFT || key == ARROW_UP) {
+		direction = -1; 
+	} else {
+		last_match = -1;
+		direction = 1;
+	}
+
+	//sets up curr match
+	if (last_match == -1) direction = 1;
+	int current = last_match;
+	int i;
+	for (i = 0; i < E.numrows; i++){
+		current += direction;
+		if (current == -1) current = E.numrows -1;
+		else if (current == E.numrows) current = 0;
+
+		erow *row = &E.row[current];
+		char *match = strstr(row->render, query);
+		if (match) {
+			last_match = current;
+			E.cy = current;
+			E.cx = editorRowRXtoCX(row, match - row->render);
+			E.rowoff = E.numrows;
+			break;
+		}
+
+	}
+
+}
+
+void editorFind(){
+	int saved_cx = E.cx;
+	int saved_cy = E.cy;
+	int saved_coloff = E.coloff;
+	int saved_rowoff = E.rowoff;
+
+	char *query = editorPrompt("Search: %s (Use ESC/Arrows/Enter)", editorFindCallback);
+	if (query){
+		free(query);
+	} else {
+		E.cx = saved_cx;
+		E.cy = saved_cy;
+		E.coloff = saved_coloff;
+		E.rowoff = saved_rowoff;
+	}
+}
+
+#pragma endregion
+
 
 #pragma region /*** input ***/
 char *editorPrompt(char *prompt, void(*callback)(char *, int)){
