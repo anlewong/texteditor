@@ -39,11 +39,11 @@
 #define KILO_TAB_STOP 8
 #define KILO_QUIT_TIMES 3
 
-//Strips bits 5, 6
-#define CTRL_KEY(k) ((k) & 0x1f)
 
+#define CTRL_KEY(k) ((k) & 0x1f) //Strips bits 5, 6
 
-enum editorKey{
+enum editorKey //enumurate special keys
+{
 	BACKSPACE = 127,
 	ARROW_UP =  1000,
 	ARROW_LEFT, 
@@ -59,8 +59,8 @@ enum editorKey{
 
 #pragma region /*** Data  ***/
 
-typedef struct erow {
-	
+typedef struct erow //stores editor row data
+{
 	//rendered 'visible' vars
 	int rsize;
 	char *render;
@@ -68,6 +68,9 @@ typedef struct erow {
 	//internal rep
 	int size;
 	char *chars;
+
+	//Styling vars
+	unsigned char *hl;
 } erow;
 
 struct editorConfig {
@@ -116,58 +119,55 @@ int editorRowRXtoCX(erow *r, int rx);
 
 #pragma region /*** Terminal Functions ***/
 
-//Handling Errors
-void die(const char*s){
-
-	//clear screen
-	clearScreen();	
-	
-	//Prints s as an error message
-	perror(s);
-	exit(1);
+void die(const char*s) //handle & print errors
+{
+	clearScreen(); //clear screen
+	perror(s); //Prints s as an error message
+	exit(1); //returns as fail to execute succesfully
 }
 
-//setting up terminal for manipulatoin
-void disableRawMode(){
-	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1) die("tcsetattr");
+
+void disableRawMode() //return Terminal to initial settings
+{
+	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1) die("tcsetattr"); //set terminal to saved original state
 }
 
-//Change Terminal Attributes to enable "RAW MODE"
-void enableRawMode(){
-       	
-	//get the initial terminal state and flags.
-	if(tcgetattr(STDIN_FILENO, &E.orig_termios) == -1) die("tcgetattr");
-	
-	//upon exit restor to initial terminal condition
-	atexit(disableRawMode); 
-	
+
+void enableRawMode()//Change Terminal Attributes to enable "RAW MODE"
+{
+	if(tcgetattr(STDIN_FILENO, &E.orig_termios) == -1) die("tcgetattr"); //save initial terminal state (flags etc.). Error if fail
+	atexit(disableRawMode); //Restor initial lterminal condition when code terminated
 	struct termios raw = E.orig_termios; //set manipulated terminal to original
-
+	/*Input Flag Explanations
+	  IRCN toggles '\r\n' rendering
+	  IXON toggles data output via ctrl keys
+	  BRKINT toggles sigInterrupt on break
+	  INPCK toggles parity check
+	  ISTRIP toggles 8th bit strip*/
 	raw.c_iflag &= ~(ICRNL | IXON | BRKINT | INPCK | ISTRIP);
-	
-	//c_oflag deals with output behavior
-	//OPOST flag for "\n" -> "\r\n"
+	/* Output Flag Explanations 
+	   OPOST flag for "\n" -> "\r\n"
+	*/
 	raw.c_oflag &= ~(OPOST);
-
-	//c_cflag character flag
-	//CS8 is bitmask so all chars are 8 bits per byte	
+	/*  Character Flag
+		CS8 is bitmask so all chars are 8 bits per byte	
+	*/
 	raw.c_cflag |= (CS8);
-
-	//c_lflag deals with local behavior 
-	//ECHO controls if terminal shows what is typed
-	//ICANON flag for canonical mode
-	//IEXTEN controls extended inputs from ctrl-v and ctrl-0 for mac
-	//ISIG turns off processing of signal commands, ctrl-c terminate and ctrl-z suspend
+	/* Local Behavior Flag Explanations
+	c_lflag deals with local behavior 
+	ECHO controls if terminal shows what is typed
+	ICANON flag for canonical mode
+	IEXTEN controls extended inputs from ctrl-v and ctrl-0 for mac
+	ISIG turns off processing of signal commands, ctrl-c terminate and ctrl-z suspend
+	*/
 	raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-
-	//timeout behavior
-	//VMIN sets minum bytes for read before return to 0
-	//VTIME sets read wait to 1/10 of a second
+	/* Terminal Timeout Behavior
+	VMIN - sets minum bytes for read before return to 0
+	VTIME - sets read wait to 1/10 of a second
+	*/
 	raw.c_cc[VMIN] = 0;
 	raw.c_cc[VTIME] = 1;	
-	
-	//set curr terminal to new flags
-	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
+	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr"); //Set terminal to modified 'raw' state
 }
 
 //Special and Reg Character Handling
@@ -267,23 +267,21 @@ void clearScreen(){
 	write(STDOUT_FILENO, "\x1b[H", 3);
 }
 
-//grab window size from os
-int getWindowSize(int *rows, int *cols) {
+
+int getWindowSize(int *rows, int *cols) //grab window size from os, pass back hxw or rxc
+{
 	//Window size struct holds cols and rows
-	struct winsize ws;
+	struct winsize ws; //os structure that holds height (row) and width (col)
 
 	//ioctl - input output control,(fd, op, &stuct);
 	//TIOCGWINSZ - request window size of file
-	
-	//1 || means always true, this code, moves the cursor to the bottom right part of the screen, and errors on a failure. It then reads the key inputed.
-	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
-		//C cursor foward, 1 arg
-		//B cursor down, 1 arg
-		if(write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
-		return getCursorPosition(rows, cols);
+	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) //req window size from system, returns true if auto req fail
+	{
+		if(write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1; //C foward, B down, move cursor to bottom left
+		return getCursorPosition(rows, cols); //use cursor position in bottom left to find rowsxcols
 	} else {
-		*cols = ws.ws_col;
-		*rows = ws.ws_row;
+		*cols = ws.ws_col; //grab columns from winsize object
+		*rows = ws.ws_row; //grab rows from winsize object
 		return 0;
 	}
 }
@@ -291,71 +289,72 @@ int getWindowSize(int *rows, int *cols) {
 
 #pragma region /***file i/o ***/
 
-char *editorRowsToString(int *buflen){
-	int totlen = 0;
-	int i;
-	for (i = 0; i < E.numrows; i++) totlen += E.row[i].size + 1;
-	*buflen = totlen;
+char *editorRowsToString(int *buflen) //Editor representation -> Buf
+{
+	int totlen = 0; //buf length var
+	int i; //loop counter
+	for (i = 0; i < E.numrows; i++) totlen += E.row[i].size + 1; //iterate through all rows, sum length of all rows
+	*buflen = totlen; //set buf length to totlen
 
-	char *buf = malloc(totlen);
-	char *p = buf;
+	char *buf = malloc(totlen); //assign buf enough memory to hold all row data
+	char *p = buf; //local var to manipulate buf which will be passed up to parent
 
-	for (i = 0; i < E.numrows; i++){
-		memcpy(p, E.row[i].chars, E.row[i].size);
-		p += E.row[i].size;
-		*p = '\n';
-		p++;
+	for (i = 0; i < E.numrows; i++) //iterate through all rows
+	{
+		memcpy(p, E.row[i].chars, E.row[i].size); //copy curr row to buf
+		p += E.row[i].size; //increment p index to end of curr row/line
+		*p = '\n'; //append '\n' to seperate written lines
+		p++; //increment p to nexxt free index.
 	}
-	return buf;
+	return buf; //return buffer containing all informatoin held by editor
 }
 
-void editorUpdateRow(erow *row){
-  	int tabs = 0;
-	int i;
-	for (i = 0; i < row->size; i++)
-	if (row->chars[i] == '\t') tabs++;
-
-	free(row->render);
-	row->render = malloc(row->size + tabs*(KILO_TAB_STOP - 1) + 1);
-
-	int idx = 0;
-	for (i = 0; i < row->size; i++){
-	if (row->chars[i] == '\t') {
-		row->render[idx++] = ' ';
-		while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
+void editorUpdateRow(erow *row) //creates 'visible'/'rendered' formatted rows
+{
+  	int tabs = 0; //tab counter
+	int i; //loop counter
+	for (i = 0; i < row->size; i++) //loop through all chars in row
+	if (row->chars[i] == '\t') tabs++; //count tabs in row
+	free(row->render); //free frs
+	row->render = malloc(row->size + tabs*(KILO_TAB_STOP - 1) + 1); //allocate '\0', tabs (8), chars (1)ea.
+	int idx = 0; //render string index var
+	for (i = 0; i < row->size; i++) //iterate through all char in row
+	{
+	if (row->chars[i] == '\t') //check char is tab
+	{
+		row->render[idx++] = ' '; //'render' 8 total spaces for tab
+		while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' '; //7 tab space renderer & idx incrementer
 	} else {
-		row->render[idx++] = row->chars[i];
+		row->render[idx++] = row->chars[i]; //'render' char increment idx
 	}
 	}
-	row->render[idx] = '\0';
-	row->rsize = idx;
+	row->render[idx] = '\0';//terminate 'rendered' string
+	row->rsize = idx; //'render' size = last 'render' index
 }
 
-//need to edit
-void editorInsertRow(int at, char *s, size_t len){
-	if (at < 0 || at > E.numrows) return;
+void editorInsertRow(int at, char *s, size_t len) //create and insert erow
+{
+	if (at < 0 || at > E.numrows) return; //return if currRow outside allocated row range [0-numrows]
 
-	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow)));
-	memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numrows - at));
-	//line appending
-	E.row[at].size = len;
-	E.row[at].chars = malloc(len + 1);
-	memcpy(E.row[at].chars, s, len);
-	E.row[at].chars[len] = '\0';
-
-	//render appending
-	E.row[at].rsize = 0;
-	E.row[at].render = NULL;
-
-	editorUpdateRow(&E.row[at]);
-
-	E.numrows++;
-	E.dirty++;
+	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow))); //give Editor row pointer space to point to new erow
+	memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numrows - at)); //open up gap @ at for new erow
+	E.row[at].size = len; //set new erow's internal len
+	E.row[at].chars = malloc(len + 1); //allocate new erows internal string (is)
+	memcpy(E.row[at].chars, s, len); //copy string S to is.
+	E.row[at].chars[len] = '\0'; //set is[len] -> '\0'
+	E.row[at].rsize = 0; //set new rows render size
+	E.row[at].render = NULL; //no rendering applied to row yet
+	E.row[at].hl = NULL; //no stylization applied to row yet
+	editorUpdateRow(&E.row[at]); //updates the row
+	E.numrows++; //trakc new num of rows
+	E.dirty++; //track num of edits made
 }
 
-void editorFreeRow(erow *row) {
-	free(row->render);
-	free(row->chars);
+void editorFreeRow(erow *row) //free row struct/object
+{
+	free(row->render); //free 'visible' format string representation or FRS
+	free(row->chars); //free 'internal' string representation isr.
+	free(row->hl); //free styling string
 }
 
 void editorDelRow(int at){
@@ -634,9 +633,9 @@ void editorDrawRows(struct abuf *ab) {
 				{
 					if (isdigit(c[j]))//check if frs[j] = [0-9]
 					{
-						abAppend(ab, "\x1b[31m", 5); //font color: white -> red
+						abAppend(ab, "\x1b[31m", 5); //font color: curr -> red
 						abAppend(ab, &c[j], 1);//append red number char
-						abAppend(ab, "\x1b[39m", 5); //font color: red -> white
+						abAppend(ab, "\x1b[39m", 5); //font color: red -> def
 					} else {
 						abAppend(ab, &c[j], 1);//append white non-number char
 					}
