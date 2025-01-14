@@ -275,7 +275,9 @@ int getWindowSize(int *rows, int *cols) //grab window size from os, pass back hx
 	}
 }
 
-/***Syntax Highlighting ***/
+#pragma endregion
+
+#pragma region /***Syntax Highlighting ***/
 
 void editorUpdateSyntax(erow *row) //update styling string for a row
 {
@@ -286,6 +288,14 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 	for (i = 0; i< row->rsize; i++) //iterate through rendered string
 	{
 		if (isdigit(row->render[i])) row->hl[i] = HL_NUMBER; //If curr rendered char is num, indicate number coloring in HL styling string
+	}
+}
+
+int editorSyntaxToColor(int hl) //return ASCII color code given HL spec 
+{
+	switch (hl){
+		case HL_NUMBER: return 31; //red
+		default: return 37; //def: white
 	}
 }
 
@@ -483,23 +493,26 @@ void editorDrawRows(struct abuf *ab) {
 			}
 		} else //Global Row within allocated rows
 		{
-			
 			int len = E.row[filerow].rsize - E.coloff; //set length to available columns
 			if(len < 0) len = 0; //If len < 0, enough columns for whole message
 			if (len > E.screencols) len = E.screencols; //If len > E.screencols, truncate lenght to just num of columns			
 			char *c = &E.row[filerow].render[E.coloff]; //Points to current row's render string
-				int j; //loop variable
-				for (j = 0; j < len; j++) //loop through formatted render string (frs)
-				{
-					if (isdigit(c[j]))//check if frs[j] = [0-9]
-					{
-						abAppend(ab, "\x1b[31m", 5); //font color: curr -> red
-						abAppend(ab, &c[j], 1);//append red number char
-						abAppend(ab, "\x1b[39m", 5); //font color: red -> def
-					} else {
-						abAppend(ab, &c[j], 1);//append white non-number char
-					}
+			unsigned char *hl = &E.row[filerow].hl[E.coloff]; //Pointer to Current Row's HL scheme
+			int j; //loop variable
+			for (j = 0; j < len; j++) //loop through formatted render string (frs)
+			{
+				if (hl[j] == HL_NORMAL){
+					abAppend(ab, "\x1b[39m", 5); //set output to def color
+					abAppend(ab, &c[j], 1); //append curr char
+				} else {
+					int color = editorSyntaxToColor(hl[j]); //get hl encoding
+					char buf[16]; //hold set color command
+					int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color); //set buf to color command
+					abAppend(ab, buf, clen); //set color to HL code.
+					abAppend(ab, &c[j], 1); //append curr char
 				}
+			}
+			abAppend(ab, "\x1b[39m", 5); //set output to def color
 		}
 		abAppend(ab, "\x1b[K" ,3); //Erase right of cursor
 		abAppend(ab, "\r\n", 3); //Newline
