@@ -58,11 +58,13 @@ enum editorKey{
 
 enum editorHighlight {
 	HL_NORMAL  = 0,
+	HL_STRING,
 	HL_NUMBER,
 	HL_MATCH
 };
 
-#define HL_HIGHLIGHT_NUMBERS (1 << 0)
+#define HL_HIGHLIGHT_NUMBERS (1<<0)
+#define HL_HIGHLIGHT_STRINGS (1<<1)
 
 #pragma endregion
 
@@ -127,7 +129,8 @@ struct editorSyntax HLDB[] = {
 	{
 		"c",
 		C_HL_extensions,
-		HL_HIGHLIGHT_NUMBERS
+		HL_HIGHLIGHT_NUMBERS,
+		HL_HIGHLIGHT_STRINGS
 	},
 };
 
@@ -334,11 +337,29 @@ void editorUpdateSyntax(erow *row){
 	if (E.syntax == NULL) return;
 
 	int prev_sep = 1;
+	int in_string = 0;
 
 	int i = 0;
 	while (i < row->size){
 		char c = row->render[i];
 		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL;
+
+		if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) {
+			if (in_string){
+				row->hl[i] = HL_STRING;
+				if (c == in_string) in_string = 0;
+				i++;
+				prev_sep = 1;
+				continue;
+			} else {
+				if (c == '"' || c == '\'') {
+					in_string = c;
+					row->hl[i] = HL_STRING;
+					i++;
+					continue;
+				}
+			}
+		}
 
 		
 		if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS){
@@ -357,6 +378,7 @@ void editorUpdateSyntax(erow *row){
 
 int editorSyntaxToColor(int hl){
 	switch (hl) {
+		case HL_STRING: return 35;
 		case HL_NUMBER: return 31;
 		case HL_MATCH: return 34;
 		default: return 37;
@@ -369,17 +391,24 @@ void editorSelectSyntaxHighlight(){
 
 	char *ext = strrchr(E.filename, '.');
 
-	for (unsigned int i = 0; i < HLDB_ENTRIES; i++){
-		struct editorSyntax *s = &HLDB[i];
-		unsigned int j = 0;
+	for (unsigned int j = 0; j < HLDB_ENTRIES; j++){
+		struct editorSyntax *s = &HLDB[j];
+		unsigned int i = 0;
 		while (s->filematch[i]) {
 			int is_ext = (s->filematch[i][0] == '.');
-			if ((is_ext && ext && !strcmp(ext, s->filematch[i])) 
+
+			if ((is_ext && ext && !strcmp(ext, s->filematch[j])) 
 			|| (!is_ext && strstr(E.filename, s->filematch[i]))){
 				E.syntax = s;
+
+				int filerow;
+				for (filerow = 0; filerow < E.numrows; filerow++){
+					editorUpdateSyntax(&E.row[filerow]);
+				}
+
 				return;
 			}
-			j++;
+			i++;
 		}
 	}
 
@@ -499,8 +528,10 @@ void editorRowDelChar(erow *row, int at){
 void editorOpen(char *filename){
 	free(E.filename);
 	E.filename = malloc(strlen(filename));
-	
+
 	editorSelectSyntaxHighlight();
+
+	memcpy(E.filename, filename, strlen(filename));
 
 	//attempts to open the passed in filename
 	FILE *fp = fopen(filename, "r");
@@ -515,9 +546,9 @@ void editorOpen(char *filename){
 	while((linelen = getline(&line, &linecap, fp)) != -1){
 		//decrement till linelen only includes characters before end of line
 		while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen -1] == '\r')){
-			linelen--;
-			editorInsertRow(E.numrows, line, linelen);
+			linelen--;	
 		}
+		editorInsertRow(E.numrows, line, linelen);
 	}
 
 	free(line);
@@ -531,7 +562,7 @@ void editorSave(){
 			editorSetStatusMessage("Save Aborted");
 			return;
 		}
-		editorSelectSyntaxHighlight();
+		editorSelectSyntaxHighlight();	
 	} 
 
 	int fd;
@@ -820,7 +851,11 @@ void editorInsertNewline(){
 void editorDelChar(){
 	//create row if one doesn't exist
 	if (E.cy == E.numrows) return;
-	if (E.cx == 0 && E.cy == 0) return;
+	if (E.cx == 0 && E.cy == 0) {
+		editorRowDelChar(&E.row[E.cy], E.cx);
+		return;
+	}
+	
 
 	erow *row = &E.row[E.cy];
 	if (E.cx > 0) {
@@ -1022,7 +1057,7 @@ void editorProcessKeypress(){
 			clearScreen();
 			exit(0);
 			break;
-		
+
 		case HOME_KEY:
 			E.cx = 0;
 			E.farx = E.cx;
@@ -1031,17 +1066,28 @@ void editorProcessKeypress(){
 			E.cx = (E.cy < E.numrows) ? E.row[E.cy].size : E.cx;
 			E.farx = E.cx;
 			break;
-
+			
 		case CTRL_KEY('f'):
 			editorFind();
 			break;
 
 		case BACKSPACE:
 		case CTRL_KEY('h'):
+			if (E.cx != 0 || E.cy != 0){
+					int startx = E.cx;
+					editorMoveCursor(ARROW_LEFT);
+					editorDelChar();
+					if (startx > 1){
+						editorMoveCursor(ARROW_RIGHT);
+					} 
+					
+				} 
+				break;
 		case DELETE_KEY:
-			if (c == DELETE_KEY) editorMoveCursor(ARROW_RIGHT);
 			editorDelChar();
 			break;
+			
+			
 		
 		case PAGE_UP:
 		case PAGE_DOWN:
