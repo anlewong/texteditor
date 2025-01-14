@@ -331,6 +331,8 @@ void editorUpdateSyntax(erow *row){
 	row->hl = realloc(row->hl, row->rsize);
 	memset(row->hl, HL_NORMAL, row->rsize);
 
+	if (E.syntax == NULL) return;
+
 	int prev_sep = 1;
 
 	int i = 0;
@@ -338,11 +340,14 @@ void editorUpdateSyntax(erow *row){
 		char c = row->render[i];
 		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL;
 
-		if((isdigit(c) && (prev_sep || prev_hl == HL_NUMBER)) || (c == '.' && prev_hl == HL_NUMBER)) {
-			row->hl[i] = HL_NUMBER;
-			i++;
-			prev_sep = 0;
-			continue;
+		
+		if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS){
+			if((isdigit(c) && (prev_sep || prev_hl == HL_NUMBER)) || (c == '.' && prev_hl == HL_NUMBER)) {
+				row->hl[i] = HL_NUMBER;
+				i++;
+				prev_sep = 0;
+				continue;
+			}
 		}
 	
 		prev_sep = is_seperator(c);
@@ -356,6 +361,28 @@ int editorSyntaxToColor(int hl){
 		case HL_MATCH: return 34;
 		default: return 37;
 	}
+}
+
+void editorSelectSyntaxHighlight(){
+	E.syntax = NULL;
+	if (E.filename == NULL) return;
+
+	char *ext = strrchr(E.filename, '.');
+
+	for (unsigned int i = 0; i < HLDB_ENTRIES; i++){
+		struct editorSyntax *s = &HLDB[i];
+		unsigned int j = 0;
+		while (s->filematch[i]) {
+			int is_ext = (s->filematch[i][0] == '.');
+			if ((is_ext && ext && !strcmp(ext, s->filematch[i])) 
+			|| (!is_ext && strstr(E.filename, s->filematch[i]))){
+				E.syntax = s;
+				return;
+			}
+			j++;
+		}
+	}
+
 }
 
 #pragma endregion
@@ -472,7 +499,8 @@ void editorRowDelChar(erow *row, int at){
 void editorOpen(char *filename){
 	free(E.filename);
 	E.filename = malloc(strlen(filename));
-	memcpy(E.filename, filename, strlen(filename));
+	
+	editorSelectSyntaxHighlight();
 
 	//attempts to open the passed in filename
 	FILE *fp = fopen(filename, "r");
@@ -503,6 +531,7 @@ void editorSave(){
 			editorSetStatusMessage("Save Aborted");
 			return;
 		}
+		editorSelectSyntaxHighlight();
 	} 
 
 	int fd;
@@ -814,7 +843,7 @@ void editorDrawStatusBar(struct abuf *ab) {
 
 	abAppend(ab, "\x1b[7m", 4);
 	char status[80], rstatus[80];
-	
+
 	int len = snprintf(status, sizeof(status), "%.20s - %d/%d C - %d/%d R | %d %s",
 		E.filename ? E.filename : "[No Name]", E.cx, (E.row) ? E.row[E.cy].size : 0,  
 		E.cy, E.numrows,  E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
