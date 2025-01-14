@@ -55,43 +55,26 @@ enum editorKey{
 	END_KEY,
 	DELETE_KEY
 };
-
-enum editorHighlight {
-	HL_NORMAL  = 0,
-	HL_STRING,
-	HL_NUMBER,
-	HL_MATCH
-};
-
-#define HL_HIGHLIGHT_NUMBERS (1<<0)
-#define HL_HIGHLIGHT_STRINGS (1<<1)
-
 #pragma endregion
 
 #pragma region /*** Data  ***/
 
-struct  editorSyntax
-{
-	char *filetype;
-	char **filematch;
-	int flags;
-};
-
 typedef struct erow {
+	
+	//rendered 'visible' vars
 	int rsize;
 	char *render;
 
+	//internal rep
 	int size;
 	char *chars;
-
-	unsigned char *hl;
 } erow;
 
 struct editorConfig {
 	//cursor tracking
 	int cx, cy;
 
-	//rendered cursor tracking
+	//rendered 'visible' cursor tracking
 	int rx;
 	int farx;
 
@@ -113,29 +96,11 @@ struct editorConfig {
 	char statusmsg[80];
 	time_t statusmsg_time;
 
-	//Syntax Highlighting
-	struct editorSyntax *syntax;
-
 	struct termios orig_termios;
 };
 
 //Global Data
 struct editorConfig E;
-
-/*filetypes*/
-char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL};
-
-struct editorSyntax HLDB[] = {
-	{
-		"c",
-		C_HL_extensions,
-		HL_HIGHLIGHT_NUMBERS,
-		HL_HIGHLIGHT_STRINGS
-	},
-};
-
-#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
-
 
 #pragma endregion
 
@@ -324,98 +289,6 @@ int getWindowSize(int *rows, int *cols) {
 }
 #pragma endregion
 
-#pragma region //Syntax Highlighting
-
-int is_seperator(int c){
-	return isspace(c) || c == '\0' || (strchr(",.()+-/*=~%<>{};", c) != NULL);
-}
-
-void editorUpdateSyntax(erow *row){
-	row->hl = realloc(row->hl, row->rsize);
-	memset(row->hl, HL_NORMAL, row->rsize);
-
-	if (E.syntax == NULL) return;
-
-	int prev_sep = 1;
-	int in_string = 0;
-
-	int i = 0;
-	while (i < row->size){
-		char c = row->render[i];
-		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL;
-
-		if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) {
-			if (in_string){
-				row->hl[i] = HL_STRING;
-				if (c == in_string) in_string = 0;
-				i++;
-				prev_sep = 1;
-				continue;
-			} else {
-				if (c == '"' || c == '\'') {
-					in_string = c;
-					row->hl[i] = HL_STRING;
-					i++;
-					continue;
-				}
-			}
-		}
-
-		
-		if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS){
-			if((isdigit(c) && (prev_sep || prev_hl == HL_NUMBER)) || (c == '.' && prev_hl == HL_NUMBER)) {
-				row->hl[i] = HL_NUMBER;
-				i++;
-				prev_sep = 0;
-				continue;
-			}
-		}
-	
-		prev_sep = is_seperator(c);
-		i++;
-	}
-}
-
-int editorSyntaxToColor(int hl){
-	switch (hl) {
-		case HL_STRING: return 35;
-		case HL_NUMBER: return 31;
-		case HL_MATCH: return 34;
-		default: return 37;
-	}
-}
-
-void editorSelectSyntaxHighlight(){
-	E.syntax = NULL;
-	if (E.filename == NULL) return;
-
-	char *ext = strrchr(E.filename, '.');
-
-	for (unsigned int j = 0; j < HLDB_ENTRIES; j++){
-		struct editorSyntax *s = &HLDB[j];
-		unsigned int i = 0;
-		while (s->filematch[i]) {
-			int is_ext = (s->filematch[i][0] == '.');
-
-			if ((is_ext && ext && !strcmp(ext, s->filematch[j])) 
-			|| (!is_ext && strstr(E.filename, s->filematch[i]))){
-				E.syntax = s;
-
-				int filerow;
-				for (filerow = 0; filerow < E.numrows; filerow++){
-					editorUpdateSyntax(&E.row[filerow]);
-				}
-
-				return;
-			}
-			i++;
-		}
-	}
-
-}
-
-#pragma endregion
-
 #pragma region /***file i/o ***/
 
 char *editorRowsToString(int *buflen){
@@ -456,8 +329,6 @@ void editorUpdateRow(erow *row){
 	}
 	row->render[idx] = '\0';
 	row->rsize = idx;
-
-	editorUpdateSyntax(row);
 }
 
 //need to edit
@@ -475,7 +346,7 @@ void editorInsertRow(int at, char *s, size_t len){
 	//render appending
 	E.row[at].rsize = 0;
 	E.row[at].render = NULL;
-	E.row[at].hl = NULL;
+
 	editorUpdateRow(&E.row[at]);
 
 	E.numrows++;
@@ -485,7 +356,6 @@ void editorInsertRow(int at, char *s, size_t len){
 void editorFreeRow(erow *row) {
 	free(row->render);
 	free(row->chars);
-	free(row->hl);
 }
 
 void editorDelRow(int at){
@@ -529,8 +399,6 @@ void editorOpen(char *filename){
 	free(E.filename);
 	E.filename = malloc(strlen(filename));
 
-	editorSelectSyntaxHighlight();
-
 	memcpy(E.filename, filename, strlen(filename));
 
 	//attempts to open the passed in filename
@@ -562,7 +430,6 @@ void editorSave(){
 			editorSetStatusMessage("Save Aborted");
 			return;
 		}
-		editorSelectSyntaxHighlight();	
 	} 
 
 	int fd;
@@ -592,16 +459,6 @@ esEnd:
 void editorFindCallback(char *query, int key) {
 	static int last_match = -1;
 	static int direction = 1;
-
-	static int saved_hl_line;
-	static char *saved_hl = NULL;
-
-
-	if(saved_hl){
-		memcpy(E.row[saved_hl_line].hl, saved_hl, E.row[saved_hl_line].rsize);
-		free(saved_hl);
-		saved_hl = NULL;
-	}
 
 	//set's our direction and curr match
 	if (key == '\r' || key == '\x1b') {
@@ -633,13 +490,6 @@ void editorFindCallback(char *query, int key) {
 			E.cy = current;
 			E.cx = editorRowRXtoCX(row, match - row->render);
 			E.rowoff = E.numrows;
-
-
-			saved_hl_line = current;
-			saved_hl = malloc(row->size);
-			memcpy(saved_hl, row->hl, row->rsize);
-			memset(&row->hl[match - row->render], HL_MATCH, strlen(query));	
-
 			break;
 		}
 
@@ -749,71 +599,58 @@ void editorScroll(){
 }
 
 void editorDrawRows(struct abuf *ab) {
-	//print tildas for y rows
+	//counter var for loops
 	int y;
 
-	//loop through all visible rows to print
+	//loop through local 'visible' rows
 	for (y=0; y < E.screenrows; y++){
 
-		//check if current row has an existing erow to print
+		//Global row
 		int filerow = y + E.rowoff;
 
+		//>= Allocatd Rows
 		if(filerow >= E.numrows){
-			//Print Centered Welcome Message at top third of editor in center
+			
+
+			//Check Empty file, Position 1/3 from top
 			if (E.numrows == 0 && y == E.screenrows/3){
-				//welcome string, name and version
+				//MessageBuf
 				char welcome[80];
 
-				//welcomelen equals whatever snprintf was able to write into welcome
+				//Editor Version Message, Records Length
 				int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo Editor -- version %s", KILO_VERSION);
 			
-				//truncates the welcome message to screencols
+				//Truncate len to 'visible' local columns
 				if (welcomelen > E.screencols) welcomelen = E.screencols;
 			
-				//calc middle of screen
+				//Find Distance to Middle of screen
 				int padding = (E.screencols - welcomelen)/2;
+
+				//Place Cursor in middle of screen
 				if (padding){
 					abAppend(ab, "~", 1);
 					padding--;
 				}
 				while(padding--) abAppend(ab, " ", 1);	
+
+				//Print Welcome Message
 				abAppend(ab, welcome, welcomelen);
 			} else {
+				//Tilda Empty Lines
 				abAppend(ab, "~", 1);		
-			}	
-		} else {
-			//only append erow content that can be read given editor window size
+			}
+		} else //Global Row within allocated rows
+		{
+			//set length to available columns
 			int len = E.row[filerow].rsize - E.coloff;
+			//If len < 0, enough columns for whole message
 			if(len < 0) len = 0;
+
+			//If len > E.screencols, truncate lenght to just num of columns
 			if (len > E.screencols) len = E.screencols;
 
-			char *c = &E.row[filerow].render[E.coloff];
-			unsigned char *hl = &E.row[filerow].hl[E.coloff];
-
-			int current_color = -1;
-
-			int i;
-			for (i = 0; i < len; i++){
-				if (hl[i] == HL_NORMAL) {
-					if (current_color != -1) {
-						abAppend(ab, "\x1b[39m", 5);
-						current_color = -1;
-					}
-					abAppend(ab, &c[i], 1);
-				} else {
-					int color = editorSyntaxToColor(hl[i]);
-
-					if(color != current_color){
-						current_color = color;
-						char buf[16];
-						int clen = snprintf(buf, sizeof buf, "\x1b[%dm", color);
-						abAppend(ab, buf, clen);
-					}
-					abAppend(ab, &c[i], 1);
-
-				}
-			}
-			abAppend(ab, "\x1b[39m", 5);			
+			//render current row and 'visible' columns
+			abAppend(ab, &E.row[filerow].render[E.coloff], len);	
 		}
 		//K erases everything to the right of the cursor, cursor moves with printing text
 		abAppend(ab, "\x1b[K" ,3);
@@ -883,8 +720,7 @@ void editorDrawStatusBar(struct abuf *ab) {
 		E.filename ? E.filename : "[No Name]", E.cx, (E.row) ? E.row[E.cy].size : 0,  
 		E.cy, E.numrows,  E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
 
-	int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
-		E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
+	int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows);
 
 	if (len > E.screencols) len = E.screencols;
 	abAppend(ab, status, len);
@@ -1145,9 +981,6 @@ void initEditor(){
 	E.filename = NULL;
 	E.statusmsg[0] = '\0';
 	E.statusmsg_time = 0;
-
-	//Syntax
-	E.syntax = NULL;
 
 	if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 	E.screenrows -= 2;
