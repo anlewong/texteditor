@@ -181,20 +181,20 @@ int editorReadKey() //input handling
 	}
 	if(c == '\x1b') //c is Escape Seq
 	{
-		//hold potential special commands
 		char seq[3]; //max special command length
 		
 		//3 > valid command >= 2
 		if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b'; 
 		if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
-
-		//valid seq
-		if (seq[0] == '['){
-			if (seq[1] >= '0' && seq[1] <= '9') {
-				if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-				if (seq[2] == '~'){
-					//Page up/down, denoted esc[5~ or esc[6~. 3 char seq
-					switch (seq[1]){
+		if (seq[0] == '[') //[%d~ logic
+		{
+			if (seq[1] >= '0' && seq[1] <= '9') //Command req 3rd input
+			{
+				if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b'; //No read No Command
+				if (seq[2] == '~')//Command struct [%d~, [0-9]
+				{
+					switch (seq[1]) //command -> key
+					{
 						case '1': return HOME_KEY;
 						case '3': return DELETE_KEY;
 						case '4': return END_KEY;
@@ -215,20 +215,17 @@ int editorReadKey() //input handling
 					case 'F': return END_KEY;
 				}
 			}
-		} 
-		//needed because sometimes doesn't have {
-		//Home esc[1~, 7~ or [h, or escOH, 
-		//END esc[4~, or 8~, or [F or OF
-		else if (seq[0] == 'O'){
+		} else if (seq[0] == 'O') //special command logic O%s, [H,F]
+		{
 			switch (seq[1]){
 				case 'H': return HOME_KEY;
 				case 'F': return END_KEY;
 			}
 		}
 
-		return '\x1b';
+		return '\x1b'; //No command Return Escape Char
 	} 
-	return c;
+	return c; //Non-Command char
 }
 
 int getCursorPosition(int *rows, int *cols) //Get Cursor Posiition in Window | Pass back rowXcol posiiton
