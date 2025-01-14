@@ -67,14 +67,13 @@ enum editorHighlight {
 #pragma endregion
 
 #pragma region /*** Data  ***/
+
 struct  editorSyntax
 {
 	char *filetype;
 	char **filematch;
 	int flags;
 };
-
-
 
 typedef struct erow {
 	int rsize;
@@ -112,11 +111,29 @@ struct editorConfig {
 	char statusmsg[80];
 	time_t statusmsg_time;
 
+	//Syntax Highlighting
+	struct editorSyntax *syntax;
+
 	struct termios orig_termios;
 };
 
 //Global Data
 struct editorConfig E;
+
+/*filetypes*/
+char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL};
+
+struct editorSyntax HLDB[] = {
+	{
+		"c",
+		C_HL_extensions,
+		HL_HIGHLIGHT_NUMBERS
+	},
+};
+
+#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
+
+
 #pragma endregion
 
 #pragma region /*** Helper Funcs ***/
@@ -794,17 +811,27 @@ void editorDelChar(){
 //any issues later on check this
 //https://github.com/snaptoken/kilo-src/blob/status-bar-right/kilo.c
 void editorDrawStatusBar(struct abuf *ab) {
-		//invert colors
-	abAppend(ab, "\x1b[7m", 4);
-	//creating bar
-	char status[80];
-	
-	int len = snprintf(status, sizeof(status), "%.20s - %d/%d - %d/%d| %d %s", E.filename ? E.filename : "[No Name]", E.cx, (E.row[E.cy].size), E.cy, E.numrows, E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
 
-	abAppend(ab, status, ((len < E.screencols) ? len : E.screencols - len));
-	while (len < E.screencols){
-		abAppend(ab, " ", 1);
-		len++;
+	abAppend(ab, "\x1b[7m", 4);
+	char status[80], rstatus[80];
+	
+	int len = snprintf(status, sizeof(status), "%.20s - %d/%d C - %d/%d R | %d %s",
+		E.filename ? E.filename : "[No Name]", E.cx, (E.row) ? E.row[E.cy].size : 0,  
+		E.cy, E.numrows,  E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
+
+	int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
+		E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
+
+	if (len > E.screencols) len = E.screencols;
+	abAppend(ab, status, len);
+	while (len < E.screencols) {
+		if (E.screencols - len == rlen) {
+			abAppend(ab, rstatus, rlen);
+		break;
+		} else {
+			abAppend(ab, " ", 1);
+			len++;
+		}
 	}
 	
 	abAppend(ab, "\x1b[m", 3);
@@ -1043,6 +1070,9 @@ void initEditor(){
 	E.filename = NULL;
 	E.statusmsg[0] = '\0';
 	E.statusmsg_time = 0;
+
+	//Syntax
+	E.syntax = NULL;
 
 	if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 	E.screenrows -= 2;
