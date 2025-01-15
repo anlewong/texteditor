@@ -125,7 +125,7 @@ struct editorConfig {
 //Global Data
 struct editorConfig E; //editor object/struct
 
-char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL}; //list of supported filetype extensions
+char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL}; //list of supported filetype extensions
 
 struct editorSyntax HLDB[] = //DB of HL params based on filetype
 {
@@ -316,21 +316,25 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 	row->hl = realloc(row->hl, row->rsize); //allocate HL enough mem to store encodings for entire rendered string
 	memset(row->hl, HL_NORMAL, row->rsize); //Iniitally set HL to have every char normal color
 
+	if (E.syntax == NULL) return; //no HL guide so leave normal
+
 	int prev_sep = 1; //starts as true every line
 
 	int i = 0;
 	while(i < row->rsize){
 		char c = row->render[i]; //char to check
 		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL; //index last char if possible
-		if (isdigit(c) && (prev_sep || prev_hl == HL_NUMBER || //Check C is number and prev char is either sep or num
-			(c == '.' && prev_hl == HL_NUMBER))) //allow decimals, hl . 
+		if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS) //check if num hl enabled
 		{
-			row->hl[i] = HL_NUMBER; //If curr rendered char is num, indicate number coloring in HL styling string
-			i++; //increment i
-			prev_sep = 0; //curr hl so no sep
-			continue; //go to next char
-		}			
-		
+			if (isdigit(c) && (prev_sep || prev_hl == HL_NUMBER || //Check C is number and prev char is either sep or num
+				(c == '.' && prev_hl == HL_NUMBER))) //allow decimals, hl . 
+			{
+				row->hl[i] = HL_NUMBER; //If curr rendered char is num, indicate number coloring in HL styling string
+				i++; //increment i
+				prev_sep = 0; //curr hl so no sep
+				continue; //go to next char
+			}			
+		}
 		prev_sep = is_seperator(c); //update prev_sep tracker
 		i++; //increment i to iterate through row
 	}
@@ -342,6 +346,31 @@ int editorSyntaxToColor(int hl) //return ASCII color code given HL spec
 		case HL_NUMBER: return 31; //red
 		case HL_MATCH: return 34; //blue
 		default: return 37; //def: white
+	}
+}
+
+void editorSelectSyntaxHighlight() //searches for HLDB entry based on filetype
+{
+	E.syntax = NULL; //set syntax to null,setting new syntax based on result
+	if (E.filename == NULL) return; //no filename
+
+	char *ext = strrchr(E.filename, '.'); //grab pointer to last .
+	for (unsigned int j = 0; j < HLDB_ENTRIES; j++) //iterate through hldb entries
+	{
+		struct editorSyntax *s = &HLDB[j]; //local copy of curr hldb entry
+		unsigned int i = 0; 
+		while (s->filematch[i]) //iterate through entrie's accepted filetypes
+		{
+			int is_ext = (s->filematch[i][0] == '.'); //makes sure ext has a .
+			if ((is_ext && ext && !strcmp(ext, s->filematch[i])) //if curr filematch is ext, ext eists, and is match
+			|| (!is_ext && strstr(E.filename, s->filematch[i])) //currfilematch isn't an extension, but filename is a substring of supported filetype
+			) {
+				E.syntax = s; //set syntax to matching entry
+				return;
+			}
+			i++; //inrement to next filetype
+		}
+		
 	}
 }
 
@@ -650,14 +679,19 @@ void editorDelChar(){
 
 //any issues later on check this
 //https://github.com/snaptoken/kilo-src/blob/status-bar-right/kilo.c
-void editorDrawStatusBar(struct abuf *ab) {
+void editorDrawStatusBar(struct abuf *ab) //status bar curr line/row, filetype, filename etc.
+{
 
 	abAppend(ab, "\x1b[7m", 4);
-	char status[80], rstatus[80];
+	char status[80], rstatus[80];//Left and Right corners of status bar
 
-	int len = snprintf(status, sizeof(status), "%.20s - %d, %d| %d %s",
-		E.filename ? E.filename : "[No Name]", E.cx,
-		E.cy, E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
+	int len = snprintf(status, sizeof(status), "%.20s - %d, %d| %s | %d %s",
+		E.filename ? E.filename : "[No Name]",//write filename if exist
+		E.cx, //curr col
+		E.cy, //curr row
+		E.syntax ? E.syntax->filetype : "what?",
+		E.dirty, //num changes 
+		E.dirty ? "(Lines Modified)" : "(clean)"); 
 
 	int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d", 
 	E.syntax ? E.syntax->filetype : "no ft", //display filetype if it exists
@@ -667,7 +701,7 @@ void editorDrawStatusBar(struct abuf *ab) {
 	if (len > E.screencols) len = E.screencols; //print only vis col
 	abAppend(ab, status, len); //print status
 	while (len < E.screencols) { //if space
-		if (E.screencols - len == rlen) {
+		if (E.screencols - len == rlen) { //Write what's left of visible space
 			abAppend(ab, rstatus, rlen); //print rendered status
 		break;
 		} else {
@@ -676,8 +710,8 @@ void editorDrawStatusBar(struct abuf *ab) {
 		}
 	}
 	
-	abAppend(ab, "\x1b[m", 3);
-	abAppend(ab, "\r\n", 2);
+	abAppend(ab, "\x1b[m", 3); //uninvert colors
+	abAppend(ab, "\r\n", 2); //newline
 }
 
 void editorDrawMessageBar(struct abuf *ab){
@@ -736,60 +770,65 @@ void editorSetStatusMessage(const char *fmt, ...){
 //Editor Open/Save
 /* Description: User Input: filename File operations: find file with name and open Printing: Copy first line into erow.*/
 void editorOpen(char *filename){
-	free(E.filename);
-	E.filename = malloc(strlen(filename));
+	free(E.filename); //ensure blank filename to rewrite
+	//tried strdup but it seg faulted
+	E.filename = malloc(strlen(filename)); //allocate new mem to filename
+	memcpy(E.filename, filename, strlen(filename)); //copy filename into editor object
 
-	memcpy(E.filename, filename, strlen(filename));
+	editorSelectSyntaxHighlight(); //setup syntax HL for file 
 
-	//attempts to open the passed in filename
-	FILE *fp = fopen(filename, "r");
+	FILE *fp = fopen(filename, "r"); //attempts to open the passed in filename
+	if (!fp) die("fopen"); //if filename doesn't exist than throw error
 
-	//if filename doesn't exist than throw error
-	if (!fp) die("fopen");
-
-	char *line = NULL;
-	size_t linecap = 0;
-	ssize_t linelen;
+	char *line = NULL; //line holder var
+	size_t linecap = 0; //max amount to readin
+	ssize_t linelen; //length read into line
 	
 	while((linelen = getline(&line, &linecap, fp)) != -1){
 		//decrement till linelen only includes characters before end of line
-		while(linelen > 0 && (line[linelen - 1] == '\n' || line[linelen -1] == '\r')){
-			linelen--;	
+		while(linelen > 0 //make sure line has content
+		&& (line[linelen - 1] == '\n' //curchar not a newline
+		|| line[linelen -1] == '\r')) //curchar not a return 
+		{
+			linelen--; //decrement index till not \n\r
 		}
-		editorInsertRow(E.numrows, line, linelen);
+		editorInsertRow(E.numrows, line, linelen); //insert written row into numrows object
 	}
 
-	free(line);
-	fclose(fp);
-	E.dirty = 0;
+	free(line); //free line holding var
+	fclose(fp); //close file
+	E.dirty = 0; //set dirty flags to 0 since file just opened
 }
 
 void editorSave(){
-	if (E.filename == NULL) {		
-		if ((E.filename = editorPrompt("Save as: %s (ESC to cancel)", NULL)) == NULL) {
-			editorSetStatusMessage("Save Aborted");
+	if (E.filename == NULL) //If filename null go here
+	{		
+		if ((E.filename = editorPrompt("Save as: %s (ESC to cancel)", NULL)) == NULL) //prompt them to enter filename 
+		{
+			editorSetStatusMessage("Save Aborted"); //no filename so no save
 			return;
 		}
+		editorSelectSyntaxHighlight();
 	} 
 
-	int fd;
+	int fd; 
 	int len;
-	char *buf = editorRowsToString(&len);
+	char *buf = editorRowsToString(&len); //big buf to store all content from editor
 
-	if ((fd = open(E.filename, O_CREAT | O_RDWR,  0644)) == -1) goto esEnd;
-	if (ftruncate(fd, len) == -1) goto esEnd;
-	if (write(fd, buf, len) != len) goto esEnd;
-		close(fd);
-		free(buf);
-		E.dirty = 0;
-	 	editorSetStatusMessage("%d bytes written to disk", len);
-		return;
+	if ((fd = open(E.filename, O_CREAT | O_RDWR,  0644)) == -1) goto esEnd; //open file, create if doesn't exist
+	if (ftruncate(fd, len) == -1) goto esEnd; //truncate to length of content needed to write
+	if (write(fd, buf, len) != len) goto esEnd; //write all content from buf onto file
+	close(fd); 
+	free(buf);
+	E.dirty = 0; //no more dirty flags
+	editorSetStatusMessage("%d bytes written to disk", len); //closing message
+	return;
 
 esEnd:
 	close(fd);
 	free(buf);
 	E.dirty = 0;
-	editorSetStatusMessage("%d bytes written to disk", len);
+	editorSetStatusMessage("%d bytes written to disk", len); //closing message
 	return;
 }
 
@@ -1087,7 +1126,7 @@ int main(int argc, char *argv[]){
 	}
 	
 	//status message
-	editorSetStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
+	//editorSetStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
 
 	//go till break
 	while(1) {
