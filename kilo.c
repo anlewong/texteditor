@@ -60,6 +60,8 @@ enum editorHighlight //string class coloring
 {
 	HL_NORMAL = 0,
 	HL_COMMENT,
+	HL_KEYWORD1,
+	HL_KEYWORD2,
 	HL_STRING,
 	HL_NUMBER,
 	HL_MATCH //for searches/find
@@ -75,7 +77,9 @@ enum editorHighlight //string class coloring
 struct editorSyntax {
 	char *filetype; //stores filetype extension
 	char **filematch; //array of formats to search through
+	char **keywords;
 	char *singeline_comment_start;
+
 	//char **multiline_comment;
 	int flags; //bit field turn on and off diff hl
 };
@@ -131,7 +135,12 @@ struct editorConfig {
 struct editorConfig E; //editor object/struct
 
 char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL}; //list of supported filetype extensions
-//char *C_HL_comments[] = {"/*", "*\\"};
+char *C_HL_keywords[] = {"switch", "if", "while", "for", "break", "continue", "return", "else",
+  "struct", "union", "typedef", "static", "enum", "class", "case", "#define|", "#include|",
+  "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+  "void|", NULL};
+
+//char *C_HL_comments[] = {"/*", "*\\", NULL};
 
 struct editorSyntax HLDB[] = //DB of HL params based on filetype
 {
@@ -139,6 +148,7 @@ struct editorSyntax HLDB[] = //DB of HL params based on filetype
 	{ 
 		"c",
 		C_HL_extensions,
+		C_HL_keywords,
 		"//",
 		//C_HL_comments,
 		HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
@@ -326,6 +336,8 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 
 	if (E.syntax == NULL) return; //no HL guide so leave normal
 
+	char **keywords = E.syntax->keywords;
+
 	char *scs = E.syntax->singeline_comment_start; //grabas the scs char
 	int scs_len = scs ? strlen(scs) : 0; //sets the len of our scs char
 	/*
@@ -415,6 +427,29 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 				continue; //go to next char
 			}			
 		}
+		
+		if (prev_sep) {
+			int j;
+			for (j = 0; keywords[j]; j++) //iterate through all keywords
+			{
+				int klen = strlen(keywords[j]); //lenght of curr keyword check
+				int kw2 = keywords[j][klen-1] == '|'; //specify kword type based on last char
+				if(kw2) klen--; //remove kw2 symbol
+
+				if (!strncmp(&row->render[i], keywords[j], klen) //check curr index start of keyword
+				&& is_seperator(row->render[i+klen])){ //confirm keyword has sep at end
+					memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen); //set kw color based on kw2 marker
+					i+= klen; //iterate past kw and post sep
+					break; //can't continue since it would hit inner loop
+				}
+			}
+			if (keywords[j] != NULL) //hl a keyword
+			{
+				prev_sep = 0;//curr char is end of kw and not sep
+				continue;
+			}
+		}
+		
 		prev_sep = is_seperator(c); //update prev_sep tracker
 		i++; //increment i to iterate through row
 	}
@@ -424,6 +459,8 @@ int editorSyntaxToColor(int hl) //return ASCII color code given HL spec
 {
 	switch (hl){
 		case HL_COMMENT: return 36; //cyan
+		case HL_KEYWORD1: return 33; //yellow
+		case HL_KEYWORD2: return 32; //green
 		case HL_STRING: return 35; //magenta
 		case HL_NUMBER: return 31; //red
 		case HL_MATCH: return 34; //blue
