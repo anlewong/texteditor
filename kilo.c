@@ -655,20 +655,23 @@ void editorDrawStatusBar(struct abuf *ab) {
 	abAppend(ab, "\x1b[7m", 4);
 	char status[80], rstatus[80];
 
-	int len = snprintf(status, sizeof(status), "%.20s - %d/%d C - %d/%d R | %d %s",
-		E.filename ? E.filename : "[No Name]", E.cx, (E.row) ? E.row[E.cy].size : 0,  
-		E.cy, E.numrows,  E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
+	int len = snprintf(status, sizeof(status), "%.20s - %d, %d| %d %s",
+		E.filename ? E.filename : "[No Name]", E.cx,
+		E.cy, E.dirty, E.dirty ? "(Lines Modified)" : "(clean)");
 
-	int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows);
+	int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d", 
+	E.syntax ? E.syntax->filetype : "no ft", //display filetype if it exists
+	E.cy + 1, //curr visible row
+	E.numrows); //total rows
 
-	if (len > E.screencols) len = E.screencols;
-	abAppend(ab, status, len);
-	while (len < E.screencols) {
+	if (len > E.screencols) len = E.screencols; //print only vis col
+	abAppend(ab, status, len); //print status
+	while (len < E.screencols) { //if space
 		if (E.screencols - len == rlen) {
-			abAppend(ab, rstatus, rlen);
+			abAppend(ab, rstatus, rlen); //print rendered status
 		break;
 		} else {
-			abAppend(ab, " ", 1);
+			abAppend(ab, " ", 1); //space to pad
 			len++;
 		}
 	}
