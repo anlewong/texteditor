@@ -59,6 +59,7 @@ enum editorKey //enumurate special keys
 enum editorHighlight //string class coloring
 {
 	HL_NORMAL = 0,
+	HL_COMMENT,
 	HL_STRING,
 	HL_NUMBER,
 	HL_MATCH //for searches/find
@@ -74,6 +75,8 @@ enum editorHighlight //string class coloring
 struct editorSyntax {
 	char *filetype; //stores filetype extension
 	char **filematch; //array of formats to search through
+	char *singeline_comment_start;
+	//char **multiline_comment;
 	int flags; //bit field turn on and off diff hl
 };
 
@@ -128,6 +131,7 @@ struct editorConfig {
 struct editorConfig E; //editor object/struct
 
 char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL}; //list of supported filetype extensions
+//char *C_HL_comments[] = {"/*", "*\\"};
 
 struct editorSyntax HLDB[] = //DB of HL params based on filetype
 {
@@ -135,6 +139,8 @@ struct editorSyntax HLDB[] = //DB of HL params based on filetype
 	{ 
 		"c",
 		C_HL_extensions,
+		"//",
+		//C_HL_comments,
 		HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
 	},
 };
@@ -320,13 +326,56 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 
 	if (E.syntax == NULL) return; //no HL guide so leave normal
 
+	char *scs = E.syntax->singeline_comment_start; //grabas the scs char
+	int scs_len = scs ? strlen(scs) : 0; //sets the len of our scs char
+	/*
+	char *mcs = E.syntax->multiline_comment[0]; //mlcs char
+	int mcs_len = mcs ? strlen(mcs) : 0; //sets the len of our mlcs char
+	char *mce = E.syntax->multiline_comment[1]; //mce char
+	int mce_len = mce ? strlen(mce) : 0; //sets the len of our mce char
+	static int in_comment = 0;
+	*/
+
 	int prev_sep = 1; //starts as true every line
 	int in_string = 0; //mark start of string
+	
 
 	int i = 0;
 	while(i < row->rsize){
 		char c = row->render[i]; //char to check
 		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL; //index last char if possible
+
+		if (scs_len && !in_string) //checks that we have a scs char and our outside a string
+		{
+			if (!strncmp(&row->render[i], scs, scs_len)) //checks curr pos if it's a scs
+			{
+				memset(&row->hl[i], HL_COMMENT, row->rsize - i); //sets row from scs on to common color
+				break;
+			}
+		}
+
+		/*if (mcs_len && mce_len && !in_string){
+			if (in_comment){
+				char *mlec = NULL;
+				if ((mlec = strstr(row->render, mce)) == NULL){
+					memset(&row->hl, HL_COMMENT, row->rsize - i); //sets row from scs on to common color
+					break;
+				} else {
+					row->hl[i] = HL_COMMENT;
+					if (!strncmp(&row->render[i], mce, mce_len)) in_comment = 0; //check if mlce char
+					i++;
+					prev_sep = 1;
+					continue;
+				}
+			} else {
+				if (!strncmp(&row->render[i], mcs, mcs_len)){
+					in_comment = 1;
+					row->hl[i] = HL_STRING; //color quote
+					i++; //increment
+					continue;
+				}
+			}
+		}*/
 
 		if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) //check string flag
 		{
@@ -338,7 +387,6 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 					i+=2;
 					continue;
 				}
-
 
 				if (c == in_string) in_string = 0; //hit " or ' so end of string
 				i++; //increment
@@ -375,6 +423,7 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 int editorSyntaxToColor(int hl) //return ASCII color code given HL spec 
 {
 	switch (hl){
+		case HL_COMMENT: return 36; //cyan
 		case HL_STRING: return 35; //magenta
 		case HL_NUMBER: return 31; //red
 		case HL_MATCH: return 34; //blue
