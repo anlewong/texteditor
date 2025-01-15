@@ -1,3 +1,11 @@
+/*
+dd
+d
+d
+d
+
+*/
+
 #pragma region /*** Packages ***/
 //Terminal Package
 #include <termios.h>
@@ -60,6 +68,7 @@ enum editorHighlight //string class coloring
 {
 	HL_NORMAL = 0,
 	HL_COMMENT,
+	HL_MLCOMMENT,
 	HL_KEYWORD1,
 	HL_KEYWORD2,
 	HL_STRING,
@@ -80,7 +89,7 @@ struct editorSyntax {
 	char **keywords;
 	char *singeline_comment_start;
 
-	//char **multiline_comment;
+	char **multiline_comment;
 	int flags; //bit field turn on and off diff hl
 };
 
@@ -139,8 +148,7 @@ char *C_HL_keywords[] = {"switch", "if", "while", "for", "break", "continue", "r
   "struct", "union", "typedef", "static", "enum", "class", "case", "#define|", "#include|",
   "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
   "void|", NULL};
-
-//char *C_HL_comments[] = {"/*", "*\\", NULL};
+char *C_HL_comments[] = {"/*", "*/", NULL};
 
 struct editorSyntax HLDB[] = //DB of HL params based on filetype
 {
@@ -150,7 +158,7 @@ struct editorSyntax HLDB[] = //DB of HL params based on filetype
 		C_HL_extensions,
 		C_HL_keywords,
 		"//",
-		//C_HL_comments,
+		C_HL_comments,
 		HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
 	},
 };
@@ -340,16 +348,15 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 
 	char *scs = E.syntax->singeline_comment_start; //grabas the scs char
 	int scs_len = scs ? strlen(scs) : 0; //sets the len of our scs char
-	/*
+	
 	char *mcs = E.syntax->multiline_comment[0]; //mlcs char
 	int mcs_len = mcs ? strlen(mcs) : 0; //sets the len of our mlcs char
 	char *mce = E.syntax->multiline_comment[1]; //mce char
 	int mce_len = mce ? strlen(mce) : 0; //sets the len of our mce char
-	static int in_comment = 0;
-	*/
 
 	int prev_sep = 1; //starts as true every line
 	int in_string = 0; //mark start of string
+	static int in_comment = 0;
 	
 
 	int i = 0;
@@ -357,7 +364,7 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 		char c = row->render[i]; //char to check
 		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL; //index last char if possible
 
-		if (scs_len && !in_string) //checks that we have a scs char and our outside a string
+		if (scs_len && !in_string && !in_comment) //checks that we have a scs char and our outside a string
 		{
 			if (!strncmp(&row->render[i], scs, scs_len)) //checks curr pos if it's a scs
 			{
@@ -366,28 +373,27 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 			}
 		}
 
-		/*if (mcs_len && mce_len && !in_string){
+		if (mcs_len && mce_len && !in_string){
 			if (in_comment){
-				char *mlec = NULL;
-				if ((mlec = strstr(row->render, mce)) == NULL){
-					memset(&row->hl, HL_COMMENT, row->rsize - i); //sets row from scs on to common color
-					break;
-				} else {
-					row->hl[i] = HL_COMMENT;
-					if (!strncmp(&row->render[i], mce, mce_len)) in_comment = 0; //check if mlce char
-					i++;
-					prev_sep = 1;
-					continue;
-				}
-			} else {
-				if (!strncmp(&row->render[i], mcs, mcs_len)){
+					row->hl[i] = HL_MLCOMMENT;
+					if (!strncmp(&row->render[i], mce, mce_len)){
+						memset(&row->hl[i], HL_MLCOMMENT, mce_len);
+						i += mce_len;
+						in_comment = 0; //check if mlce char
+						prev_sep = 1;
+						continue;
+					} else {
+						i++;
+						continue;
+					}
+						
+			} else if (!strncmp(&row->render[i], mcs, mcs_len)){
+					memset(&row->hl[i], HL_MLCOMMENT, mcs_len);
+					i+= mcs_len;
 					in_comment = 1;
-					row->hl[i] = HL_STRING; //color quote
-					i++; //increment
 					continue;
 				}
-			}
-		}*/
+		}
 
 		if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) //check string flag
 		{
@@ -458,7 +464,8 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 int editorSyntaxToColor(int hl) //return ASCII color code given HL spec 
 {
 	switch (hl){
-		case HL_COMMENT: return 36; //cyan
+		case HL_COMMENT: 
+		case HL_MLCOMMENT: return 36; //cyan
 		case HL_KEYWORD1: return 33; //yellow
 		case HL_KEYWORD2: return 32; //green
 		case HL_STRING: return 35; //magenta
@@ -702,14 +709,30 @@ void editorDrawRows(struct abuf *ab) {
 			int j; //loop variable
 			for (j = 0; j < len; j++) //loop through formatted render string (frs)
 			{
-				if (hl[j] == HL_NORMAL){
+				if (iscntrl(c[j])) //cntrl char processing
+				{
+					char sym = (c[j] <= 26) ? '@' + c[j] : '?'; //render cntrl char as @A etc
+					abAppend(ab, "\x1b[7m", 4); //invert color
+					abAppend(ab, &sym, 1);
+					abAppend(ab, "\x1b[m", 3); //def color
+					if (current_color != -1) //non def color
+					{
+						char buf[16];
+						int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color); //set back to formatted color
+						abAppend(ab, buf, clen);
+					}
+
+
+				} else if (hl[j] == HL_NORMAL) //normal hl
+				{
 					if(current_color != -1) //check if curr color not default
 					{
 						abAppend(ab, "\x1b[39m", 5); //set output to def color
 						current_color = -1;
 					}
 					abAppend(ab, &c[j], 1); //append curr char
-				} else {
+				} else //custom hl
+				{
 					int color = editorSyntaxToColor(hl[j]); //get hl encoding
 					if (color != current_color) //is curr color new color?
 					{
