@@ -366,6 +366,12 @@ void editorSelectSyntaxHighlight() //searches for HLDB entry based on filetype
 			|| (!is_ext && strstr(E.filename, s->filematch[i])) //currfilematch isn't an extension, but filename is a substring of supported filetype
 			) {
 				E.syntax = s; //set syntax to matching entry
+
+				int filerow;
+				for (filerow = 0; filerow < E.numrows; filerow++)//iterate through all rows
+				{
+					editorUpdateSyntax(&E.row[filerow]); //update all rows to match hl guide
+				}
 				return;
 			}
 			i++; //inrement to next filetype
@@ -774,7 +780,6 @@ void editorOpen(char *filename){
 	//tried strdup but it seg faulted
 	E.filename = malloc(strlen(filename)); //allocate new mem to filename
 	memcpy(E.filename, filename, strlen(filename)); //copy filename into editor object
-
 	editorSelectSyntaxHighlight(); //setup syntax HL for file 
 
 	FILE *fp = fopen(filename, "r"); //attempts to open the passed in filename
