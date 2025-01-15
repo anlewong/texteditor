@@ -63,9 +63,17 @@ enum editorHighlight //string class coloring
 	HL_MATCH //for searches/find
 };
 
+#define HL_HIGHLIGHT_NUMBERS (1<<0) //bit flag num hl
+
 #pragma endregion
 
 #pragma region /*** Data  ***/
+
+struct editorSyntax {
+	char *filetype; //stores filetype extension
+	char **filematch; //array of formats to search through
+	int flags; //bit field turn on and off diff hl
+};
 
 typedef struct erow //stores editor row data
 {
@@ -107,11 +115,29 @@ struct editorConfig {
 	char statusmsg[80];
 	time_t statusmsg_time;
 
+	//syntax settings
+	struct editorSyntax *syntax;
+
+	//terminal settings
 	struct termios orig_termios;
 };
 
 //Global Data
 struct editorConfig E; //editor object/struct
+
+char *C_HL_extensions[] = {".c", ".h", ".cpp", NULL}; //list of supported filetype extensions
+
+struct editorSyntax HLDB[] = //DB of HL params based on filetype
+{
+	 //C syntax entry, name c, supports extensions found in second param, highlight numbers on.
+	{ 
+		"c",
+		C_HL_extensions,
+		HL_HIGHLIGHT_NUMBERS
+	},
+};
+
+#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0])) //HLDB entry size = total size/ size of 1 entry
 
 #pragma endregion
 
@@ -280,15 +306,33 @@ int getWindowSize(int *rows, int *cols) //grab window size from os, pass back hx
 
 #pragma region /***Syntax Highlighting ***/
 
+int is_seperator(int c) //checks if c is a seperating character
+{
+	return isspace(c) || c == '\0' || strchr(",.()+=/*=~%%<>[];", c); //checks if char is a space, end of line (eol) or in string def last
+}
+
 void editorUpdateSyntax(erow *row) //update styling string for a row
 {
 	row->hl = realloc(row->hl, row->rsize); //allocate HL enough mem to store encodings for entire rendered string
 	memset(row->hl, HL_NORMAL, row->rsize); //Iniitally set HL to have every char normal color
 
-	int i; //loop var
-	for (i = 0; i< row->rsize; i++) //iterate through rendered string
-	{
-		if (isdigit(row->render[i])) row->hl[i] = HL_NUMBER; //If curr rendered char is num, indicate number coloring in HL styling string
+	int prev_sep = 1; //starts as true every line
+
+	int i = 0;
+	while(i < row->rsize){
+		char c = row->render[i]; //char to check
+		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL; //index last char if possible
+		if (isdigit(c) && (prev_sep || prev_hl == HL_NUMBER || //Check C is number and prev char is either sep or num
+			(c == '.' && prev_hl == HL_NUMBER))) //allow decimals, hl . 
+		{
+			row->hl[i] = HL_NUMBER; //If curr rendered char is num, indicate number coloring in HL styling string
+			i++; //increment i
+			prev_sep = 0; //curr hl so no sep
+			continue; //go to next char
+		}			
+		
+		prev_sep = is_seperator(c); //update prev_sep tracker
+		i++; //increment i to iterate through row
 	}
 }
 
@@ -1021,6 +1065,9 @@ void initEditor(){
 	E.filename = NULL;
 	E.statusmsg[0] = '\0';
 	E.statusmsg_time = 0;
+
+	//syntax settings
+	E.syntax = NULL;
 
 	if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
 	E.screenrows -= 2;
