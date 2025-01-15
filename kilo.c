@@ -105,6 +105,11 @@ typedef struct erow //stores editor row data
 
 	//Styling vars
 	unsigned char *hl;
+
+	//ML Commenting
+	int idx;
+	int hl_open_comment;
+
 } erow;
 
 struct editorConfig {
@@ -356,7 +361,7 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 
 	int prev_sep = 1; //starts as true every line
 	int in_string = 0; //mark start of string
-	static int in_comment = 0;
+	int in_comment = (row->idx > 0 && E.row[row->idx - 1].hl_open_comment);
 	
 
 	int i = 0;
@@ -459,7 +464,12 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 		prev_sep = is_seperator(c); //update prev_sep tracker
 		i++; //increment i to iterate through row
 	}
+	//updating open_comment attribute
+	int changed = (row->hl_open_comment != in_comment);
+	row->hl_open_comment = in_comment;
+	if (changed && row->idx + 1 < E.numrows) editorUpdateSyntax(&E.row[row->idx+1]);
 }
+
 
 int editorSyntaxToColor(int hl) //return ASCII color code given HL spec 
 {
@@ -589,6 +599,10 @@ void editorInsertRow(int at, char *s, size_t len) //create and insert erow
 
 	E.row = realloc(E.row, ((E.numrows + 1) * sizeof(erow))); //give Editor row pointer space to point to new erow
 	memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numrows - at)); //open up gap @ at for new erow
+	for (int j = at + 1; j <= E.numrows; j++) E.row[j].idx++; //update displaced idx rows
+
+	E.row[at].idx = at;
+	
 	E.row[at].size = len; //set new erow's internal len
 	E.row[at].chars = malloc(len + 1); //allocate new erows internal string (is)
 	memcpy(E.row[at].chars, s, len); //copy string S to is.
@@ -596,6 +610,8 @@ void editorInsertRow(int at, char *s, size_t len) //create and insert erow
 	E.row[at].rsize = 0; //set new rows render size
 	E.row[at].render = NULL; //no rendering applied to row yet
 	E.row[at].hl = NULL; //no stylization applied to row yet
+	E.row[at].hl_open_comment = 0;
+
 	editorUpdateRow(&E.row[at]); //updates the row
 	E.numrows++; //trakc new num of rows
 	E.dirty++; //track num of edits made
@@ -612,6 +628,7 @@ void editorDelRow(int at){
 	if(at < 0 || at >= E.numrows) return;
 	editorFreeRow(&E.row[at]);
 	memmove(&E.row[at], &E.row[at+1], sizeof(erow) * (E.numrows - at - 1));
+	for (int j = at + 1; j < E.numrows - 1; j++) E.row[j].idx--; //update displaced idx rows
 	E.numrows--;
 	E.dirty++;
 }
