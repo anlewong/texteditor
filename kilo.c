@@ -59,11 +59,13 @@ enum editorKey //enumurate special keys
 enum editorHighlight //string class coloring
 {
 	HL_NORMAL = 0,
+	HL_STRING,
 	HL_NUMBER,
 	HL_MATCH //for searches/find
 };
 
 #define HL_HIGHLIGHT_NUMBERS (1<<0) //bit flag num hl
+#define HL_HIGHLIGHT_STRINGS (1<<1) //bit flag string hl
 
 #pragma endregion
 
@@ -133,7 +135,7 @@ struct editorSyntax HLDB[] = //DB of HL params based on filetype
 	{ 
 		"c",
 		C_HL_extensions,
-		HL_HIGHLIGHT_NUMBERS
+		HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
 	},
 };
 
@@ -319,11 +321,41 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 	if (E.syntax == NULL) return; //no HL guide so leave normal
 
 	int prev_sep = 1; //starts as true every line
+	int in_string = 0; //mark start of string
 
 	int i = 0;
 	while(i < row->rsize){
 		char c = row->render[i]; //char to check
 		unsigned char prev_hl = (i > 0) ? row->hl[i-1] : HL_NORMAL; //index last char if possible
+
+		if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) //check string flag
+		{
+			if (in_string){ //curr in string
+				row->hl[i] = HL_STRING; //hl string
+				
+				if (c == '\\' && i + 1 < row->rsize) { //handle \" and \' withiin a string
+					row->hl[i+1] = HL_STRING;
+					i+=2;
+					continue;
+				}
+
+
+				if (c == in_string) in_string = 0; //hit " or ' so end of string
+				i++; //increment
+				prev_sep = 1; //sep stay true
+				continue;
+
+			} else {
+				if (c == '"' || c == '\'') {
+					in_string = c; //string equals " or ' in ascii
+					row->hl[i] = HL_STRING; //color quote
+					i++; //increment
+					continue;
+				}
+			}
+		}
+
+
 		if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS) //check if num hl enabled
 		{
 			if (isdigit(c) && (prev_sep || prev_hl == HL_NUMBER || //Check C is number and prev char is either sep or num
@@ -343,6 +375,7 @@ void editorUpdateSyntax(erow *row) //update styling string for a row
 int editorSyntaxToColor(int hl) //return ASCII color code given HL spec 
 {
 	switch (hl){
+		case HL_STRING: return 35; //magenta
 		case HL_NUMBER: return 31; //red
 		case HL_MATCH: return 34; //blue
 		default: return 37; //def: white
